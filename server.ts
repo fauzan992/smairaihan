@@ -1,6 +1,5 @@
 import express from 'express';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
 import { INITIAL_CLASSES, INITIAL_TEACHERS, INITIAL_STUDENTS, generateInitialAttendance, INITIAL_BK_NOTES } from './src/data/mockDatabase';
 import { ClassRoom, Teacher, Student, AttendanceRecord, User, SchoolSettings, HolidayConfig, BKNote, UserRole } from './src/types';
 import {
@@ -104,12 +103,13 @@ const persistData = () => {
   }
 };
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+const PORT = 3000;
 
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+async function startServer() {
 
   // Helper for current date in YYYY-MM-DD
   const getTodayStr = () => {
@@ -1334,14 +1334,15 @@ async function startServer() {
     }
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production') {
+  // Vite middleware for development (only when not on Vercel)
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (!process.env.VERCEL) {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
@@ -1349,21 +1350,25 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', async () => {
-    console.log(`[SMA Islam Ra'iyatul Husnan Server] running on http://localhost:${PORT}`);
-    try {
-      const initSync = await pullAllFromSupabase();
-      if (initSync && initSync.success && initSync.data) {
-        if (initSync.data.classes.length > 0) classesDB = initSync.data.classes;
-        if (initSync.data.teachers.length > 0) teachersDB = initSync.data.teachers;
-        if (initSync.data.students.length > 0) studentsDB = initSync.data.students;
-        if (initSync.data.attendance.length > 0) attendanceDB = initSync.data.attendance;
-        console.log(`[Supabase Boot Sync] Auto-synced ${studentsDB.length} students, ${classesDB.length} classes from Supabase.`);
+  if (!process.env.VERCEL) {
+    app.listen(PORT, '0.0.0.0', async () => {
+      console.log(`[SMA Islam Ra'iyatul Husnan Server] running on http://localhost:${PORT}`);
+      try {
+        const initSync = await pullAllFromSupabase();
+        if (initSync && initSync.success && initSync.data) {
+          if (initSync.data.classes.length > 0) classesDB = initSync.data.classes;
+          if (initSync.data.teachers.length > 0) teachersDB = initSync.data.teachers;
+          if (initSync.data.students.length > 0) studentsDB = initSync.data.students;
+          if (initSync.data.attendance.length > 0) attendanceDB = initSync.data.attendance;
+          console.log(`[Supabase Boot Sync] Auto-synced ${studentsDB.length} students, ${classesDB.length} classes from Supabase.`);
+        }
+      } catch (err) {
+        console.warn('[Supabase Boot Sync] Warning during startup pull:', err);
       }
-    } catch (err) {
-      console.warn('[Supabase Boot Sync] Warning during startup pull:', err);
-    }
-  });
+    });
+  }
 }
 
 startServer();
+
+export default app;
