@@ -1244,70 +1244,62 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {/* TAB 2: BENTO SCANNER BARCODE */}
           {activeTab === 'scan' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Left Bento Dark Card - Active Scanner Box */}
-              <div className="lg:col-span-6 bg-slate-900 rounded-3xl p-6 relative overflow-hidden shadow-2xl text-white flex flex-col justify-between border border-slate-800">
-                <div className="relative z-10 space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h3 className="font-extrabold text-sm uppercase tracking-wider text-amber-300 flex items-center gap-2">
-                      <Barcode className="w-5 h-5 text-emerald-400" /> SCANNER NISN AKTIF
-                    </h3>
-                    <div className="flex items-center gap-2 bg-slate-800/80 px-2.5 py-1 rounded-full border border-slate-700">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                      <span className="text-[10px] text-emerald-400 font-extrabold uppercase tracking-widest">READY TO SCAN</span>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-950 rounded-2xl border-2 border-dashed border-emerald-500/40 p-8 flex flex-col items-center justify-center text-center relative overflow-hidden group hover:border-emerald-400 transition-colors cursor-pointer"
-                       onClick={() => setShowScannerModal(true)}>
-                    {/* Animated Scanning Laser Effect */}
-                    <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-emerald-400 to-transparent top-1/2 -translate-y-1/2 animate-pulse shadow-[0_0_15px_rgba(16,185,129,0.8)] pointer-events-none"></div>
-
-                    <Barcode className="w-20 h-20 text-emerald-400 mb-3 opacity-90 group-hover:scale-110 transition-transform" />
-                    <p className="text-sm font-extrabold text-white">Arahkan Barcode NISN Siswa ke Kamera</p>
-                    <p className="text-xs text-slate-400 mt-1">Atau gunakan scanner USB barcode eksternal</p>
-
-                    <div className="flex gap-2.5 mt-4 flex-wrap justify-center">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowScannerModal(true);
-                        }}
-                        className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-lg transition-all cursor-pointer"
-                      >
-                        Buka Scanner Kamera Instant
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowDismissalModal(true);
-                        }}
-                        className="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-black shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
-                      >
-                        <DoorOpen className="w-4 h-4" /> Sesi Absensi Jam Pulang (Tanpa Barcode)
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Last Scan Status Badge */}
-                  <div className="p-3.5 bg-emerald-950/70 border border-emerald-500/30 rounded-2xl flex items-center justify-between text-xs">
+              {/* Left Bento Dark Card - Active Continuous Live Scanner Box */}
+              <div className="lg:col-span-7 flex flex-col space-y-4">
+                <div className="flex flex-wrap justify-between items-center gap-2 bg-slate-900 p-4 rounded-2xl border border-slate-800 text-white">
+                  <div className="flex items-center gap-2">
+                    <Barcode className="w-5 h-5 text-emerald-400" />
                     <div>
-                      <p className="text-[10px] text-emerald-300 font-bold uppercase tracking-wider">Scan Presensi Terakhir</p>
-                      <p className="font-bold text-white mt-0.5">
-                        {todayAttendance.length > 0 ? todayAttendance[0].studentName : 'Belum Ada Scan Hari Ini'}
-                      </p>
+                      <h3 className="font-extrabold text-sm uppercase tracking-wider text-amber-300">
+                        SCANNER NISN LIVE AKTIF
+                      </h3>
+                      <p className="text-[11px] text-slate-400">Kamera terbuka & memindai otomatis tanpa henti</p>
                     </div>
-                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-extrabold px-2.5 py-1 rounded-lg uppercase tracking-wider">
-                      {todayAttendance.length > 0 ? `${todayAttendance[0].className} • ${todayAttendance[0].time} WIB` : 'STANDBY'}
-                    </span>
                   </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowDismissalModal(true)}
+                      className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-black shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <DoorOpen className="w-3.5 h-3.5" /> Absensi Jam Pulang
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowScannerModal(true)}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                      title="Buka Layar Penuh / Modal Overlay"
+                    >
+                      Layar Penuh
+                    </button>
+                  </div>
+                </div>
+
+                {/* Embedded Live Camera Scanner */}
+                <BarcodeScannerModal
+                  isInline={true}
+                  onSuccessScan={onRefreshData}
+                  recordedByRole="admin"
+                  recordedByName="Admin Piket Sekolah"
+                  studentsList={students}
+                />
+
+                {/* Last Scan Status Badge */}
+                <div className="p-3.5 bg-slate-900 border border-emerald-500/30 rounded-2xl flex items-center justify-between text-xs text-white">
+                  <div>
+                    <p className="text-[10px] text-emerald-300 font-bold uppercase tracking-wider">Scan Presensi Terakhir</p>
+                    <p className="font-bold text-white mt-0.5">
+                      {todayAttendance.length > 0 ? todayAttendance[0].studentName : 'Belum Ada Scan Hari Ini'}
+                    </p>
+                  </div>
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-extrabold px-2.5 py-1 rounded-lg uppercase tracking-wider">
+                    {todayAttendance.length > 0 ? `${todayAttendance[0].className} • ${todayAttendance[0].time} WIB` : 'STANDBY'}
+                  </span>
                 </div>
               </div>
 
               {/* Right Bento Card - Real-Time Attendance Log */}
-              <div className="lg:col-span-6 bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
+              <div className="lg:col-span-5 bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
                 <div>
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-slate-900 font-extrabold text-base flex items-center gap-2">

@@ -331,9 +331,9 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
             <div className="space-y-4">
               <div className="flex justify-between items-center bg-emerald-50 p-4 rounded-xl border border-emerald-200">
                 <div>
-                  <h4 className="font-bold text-emerald-900 text-sm">Absensi Siswa Kelas {currentClass?.name}</h4>
+                  <h4 className="font-bold text-emerald-900 text-sm">Absensi Barcode & QR NISN Kelas {currentClass?.name}</h4>
                   <p className="text-xs text-emerald-700 mt-0.5">
-                    Gunakan Barcode Scanner kamera/USB atau perbarui status kehadiran secara manual di bawah ini.
+                    Kamera terbuka otomatis & memindai tanpa henti. Arahkan kartu QR/barcode NISN siswa ke kamera.
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -341,9 +341,20 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
                     onClick={() => setShowScannerModal(true)}
                     className="flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer"
                   >
-                    <Barcode className="w-4 h-4" /> Buka Scanner Barcode
+                    <Barcode className="w-4 h-4" /> Layar Penuh
                   </button>
                 </div>
+              </div>
+
+              {/* Embedded Live Scanner Camera */}
+              <div className="max-w-xl mx-auto">
+                <BarcodeScannerModal
+                  isInline={true}
+                  onSuccessScan={onRefreshData}
+                  recordedByRole="guru"
+                  recordedByName={user.name}
+                  studentsList={classStudents}
+                />
               </div>
 
               {saveSuccessMsg && (
