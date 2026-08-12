@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { apiService } from '../services/apiService';
 import { AttendanceStatus, Student, AttendanceRecord } from '../types';
-import { Camera, Barcode, CheckCircle2, AlertCircle, X, Volume2, UserCheck, RefreshCw, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Camera, Barcode, CheckCircle2, AlertCircle, X, Volume2, UserCheck, RefreshCw, AlertTriangle, ShieldCheck, Maximize2, Minimize2 } from 'lucide-react';
 
 interface BarcodeScannerModalProps {
   onClose?: () => void;
@@ -28,6 +28,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [notes, setNotes] = useState('');
   const [scannerMode, setScannerMode] = useState<'camera' | 'usb' | 'manual'>('camera');
   const [loading, setLoading] = useState(false);
+  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
   
   // Track students who have been scanned today to prevent duplicate scans
   const [scannedMap, setScannedMap] = useState<Map<string, { studentName: string; className: string; status: string; time: string }>>(new Map());
@@ -50,6 +51,24 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const lastScannedCodeRef = useRef<{ code: string; timestamp: number } | null>(null);
   const isProcessingRef = useRef<boolean>(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // Fullscreen handlers
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => setIsNativeFullscreen(true)).catch(() => {});
+    } else {
+      document.exitFullscreen().then(() => setIsNativeFullscreen(false)).catch(() => {});
+    }
+  };
+
+  const handleFinishScan = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+    if (onClose) {
+      onClose();
+    }
+  };
 
   // Play audio beep on successful scan
   const playBeepSuccess = () => {
@@ -296,35 +315,48 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   };
 
   const scannerContent = (
-    <div className={isInline ? "bg-slate-900 rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-800 flex flex-col w-full text-white relative overflow-hidden" : "bg-white rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] overflow-y-auto text-slate-800"}>
+    <div className={isInline ? "bg-slate-900 rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-800 flex flex-col w-full text-white relative overflow-hidden" : "bg-slate-900 rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl border border-slate-800 flex flex-col text-white relative my-auto"}>
       
       {/* Header */}
-      <div className={`flex justify-between items-center pb-3 border-b mb-3 ${isInline ? 'border-slate-800' : 'border-slate-100'}`}>
+      <div className="flex justify-between items-center pb-3 border-b border-slate-800 mb-3">
         <div className="flex items-center gap-2.5">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold ${isInline ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-emerald-100 text-emerald-700'}`}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
             <Barcode className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className={`font-bold text-lg leading-tight ${isInline ? 'text-white' : 'text-slate-800'}`}>
-                {isInline ? 'Scanner Barcode & QR NISN Live' : 'Scanner Barcode & QR NISN'}
+              <h3 className="font-bold text-lg leading-tight text-white">
+                {isInline ? 'Scanner Barcode & QR NISN Live' : 'Scanner QR Code & Barcode NISN (Layar Penuh)'}
               </h3>
               <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
                 <ShieldCheck className="w-3 h-3 text-emerald-400" /> Anti-Scan Ganda
               </span>
             </div>
-            <p className={`text-xs ${isInline ? 'text-slate-400' : 'text-slate-500'}`}>SMA Islam Ra'iyatul Husnan Wringin</p>
+            <p className="text-xs text-slate-400">SMA Islam Ra'iyatul Husnan Wringin</p>
           </div>
         </div>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className={`p-1.5 rounded-lg cursor-pointer transition-colors ${isInline ? 'text-slate-400 hover:text-white hover:bg-slate-800' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
-            title="Tutup Modal"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {!isInline && (
+            <button
+              onClick={toggleFullscreen}
+              className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg cursor-pointer transition-colors flex items-center gap-1.5 text-xs font-semibold"
+              title="Toggle Fullscreen Layar"
+            >
+              {isNativeFullscreen ? <Minimize2 className="w-4 h-4 text-amber-400" /> : <Maximize2 className="w-4 h-4 text-emerald-400" />}
+              <span className="hidden sm:inline">{isNativeFullscreen ? 'Layar Normal' : 'Layar Penuh Browser'}</span>
+            </button>
+          )}
+          {onClose && (
+            <button
+              onClick={handleFinishScan}
+              className="px-3 py-1.5 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg cursor-pointer transition-colors flex items-center gap-1 text-xs font-bold"
+              title="Selesai & Keluar Layar Penuh"
+            >
+              <X className="w-4 h-4" />
+              <span>Selesai</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Active Continuous Camera Status Indicator */}
@@ -335,22 +367,22 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400"></span>
           </span>
           <span className="font-extrabold text-[11px] uppercase tracking-wide">
-            Kamera Terbuka & Memindai Otomatis (Tanpa Henti)
+            Kamera Mode Layar Penuh Terbuka & Memindai Otomatis (Tanpa Henti)
           </span>
         </div>
         <span className="text-[10px] font-bold bg-emerald-900/90 text-emerald-200 px-2 py-0.5 rounded-md border border-emerald-700/60">
-          Ready
+          Ready Live
         </span>
       </div>
 
       {/* Mode Selector */}
-      <div className={`grid grid-cols-3 gap-1 p-1 rounded-xl mb-3 ${isInline ? 'bg-slate-950 border border-slate-800' : 'bg-slate-100'}`}>
+      <div className="grid grid-cols-3 gap-1 p-1 rounded-xl mb-3 bg-slate-950 border border-slate-800">
         <button
           onClick={() => setScannerMode('camera')}
           className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
             scannerMode === 'camera'
-              ? isInline ? 'bg-emerald-600 text-white shadow-xs font-bold' : 'bg-white text-emerald-700 shadow-xs'
-              : isInline ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+              ? 'bg-emerald-600 text-white shadow-xs font-bold'
+              : 'text-slate-400 hover:text-white'
           }`}
         >
           <Camera className="w-3.5 h-3.5" /> Kamera HP / Laptop
@@ -359,8 +391,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           onClick={() => setScannerMode('usb')}
           className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
             scannerMode === 'usb'
-              ? isInline ? 'bg-emerald-600 text-white shadow-xs font-bold' : 'bg-white text-emerald-700 shadow-xs'
-              : isInline ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+              ? 'bg-emerald-600 text-white shadow-xs font-bold'
+              : 'text-slate-400 hover:text-white'
           }`}
         >
           <Barcode className="w-3.5 h-3.5" /> Scanner Fisik / USB
@@ -369,8 +401,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           onClick={() => setScannerMode('manual')}
           className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
             scannerMode === 'manual'
-              ? isInline ? 'bg-emerald-600 text-white shadow-xs font-bold' : 'bg-white text-emerald-700 shadow-xs'
-              : isInline ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+              ? 'bg-emerald-600 text-white shadow-xs font-bold'
+              : 'text-slate-400 hover:text-white'
           }`}
         >
           <UserCheck className="w-3.5 h-3.5" /> Input NISN
@@ -380,22 +412,22 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       {/* Status Preset Selector */}
       <div className="mb-3">
         <div className="flex justify-between items-center mb-1.5">
-          <label className={`text-xs font-semibold ${isInline ? 'text-slate-300' : 'text-slate-700'}`}>
+          <label className="text-xs font-semibold text-slate-300">
             Status Presensi yang Dicatat:
           </label>
-          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${isInline ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-500'}`}>
+          <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-800 text-slate-300">
             Total Terrecord: <strong className="text-emerald-400">{totalScannedCount}</strong>
           </span>
         </div>
         <div className="grid grid-cols-4 gap-2">
           {(['Hadir', 'Izin', 'Sakit', 'Alpa'] as AttendanceStatus[]).map((st) => {
             const active = selectedStatus === st;
-            let bg = isInline ? 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100';
+            let bg = 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800';
             if (active) {
-              if (st === 'Hadir') bg = 'bg-emerald-600 text-white border-emerald-600 shadow-xs';
-              if (st === 'Izin') bg = 'bg-amber-500 text-white border-amber-500 shadow-xs';
-              if (st === 'Sakit') bg = 'bg-blue-600 text-white border-blue-600 shadow-xs';
-              if (st === 'Alpa') bg = 'bg-rose-600 text-white border-rose-600 shadow-xs';
+              if (st === 'Hadir') bg = 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold';
+              if (st === 'Izin') bg = 'bg-amber-500 text-white border-amber-500 shadow-xs font-bold';
+              if (st === 'Sakit') bg = 'bg-blue-600 text-white border-blue-600 shadow-xs font-bold';
+              if (st === 'Alpa') bg = 'bg-rose-600 text-white border-rose-600 shadow-xs font-bold';
             }
             return (
               <button
@@ -412,10 +444,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       </div>
 
       {/* Scanner Camera Body Area */}
-      <div className="relative mb-3 min-h-[250px] bg-slate-950 rounded-2xl overflow-hidden flex flex-col items-center justify-center p-2 border border-slate-800 shadow-inner">
+      <div className="relative mb-3 min-h-[260px] bg-slate-950 rounded-2xl overflow-hidden flex flex-col items-center justify-center p-2 border border-slate-800 shadow-inner">
         {scannerMode === 'camera' && (
           <div className="w-full relative flex flex-col items-center">
-            <div id={uniqueReaderId} className="w-full max-w-[320px] rounded-xl overflow-hidden text-white text-xs"></div>
+            <div id={uniqueReaderId} className="w-full max-w-[360px] rounded-xl overflow-hidden text-white text-xs"></div>
             
             <div className="mt-2 text-center">
               <span className="text-[11px] font-medium text-emerald-400 bg-emerald-950/90 px-3 py-1 rounded-full border border-emerald-800/80 inline-flex items-center gap-1.5 shadow-sm">
@@ -470,15 +502,15 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
       {/* Warning Alert: SCAN GANDA DICEGAH */}
       {warningMsg && (
-        <div className="p-3 bg-amber-50 border-2 border-amber-300 text-amber-900 rounded-xl text-xs flex items-start gap-2.5 mb-3 shadow-sm animate-in fade-in duration-200">
-          <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
+        <div className="p-3 bg-amber-950/90 border-2 border-amber-500/80 text-amber-200 rounded-xl text-xs flex items-start gap-2.5 mb-3 shadow-sm animate-in fade-in duration-200">
+          <AlertTriangle className="w-5 h-5 shrink-0 text-amber-400 mt-0.5" />
           <div className="flex-1">
-            <span className="font-bold uppercase tracking-wide text-amber-800 text-[11px] block">
+            <span className="font-bold uppercase tracking-wide text-amber-300 text-[11px] block">
               Peringatan - Scan Ganda Dicegah
             </span>
             <p className="text-xs mt-0.5 font-medium leading-relaxed">{warningMsg}</p>
           </div>
-          <button onClick={() => setWarningMsg(null)} className="text-amber-500 hover:text-amber-700">
+          <button onClick={() => setWarningMsg(null)} className="text-amber-400 hover:text-amber-200">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -515,24 +547,24 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
       {/* Error Alert */}
       {errorMsg && (
-        <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center justify-between gap-2 mb-3">
+        <div className="p-3 bg-rose-950/90 border border-rose-500/80 text-rose-200 rounded-xl text-xs flex items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
             <span>{errorMsg}</span>
           </div>
-          <button onClick={() => setErrorMsg(null)} className="text-rose-400 hover:text-rose-600">
+          <button onClick={() => setErrorMsg(null)} className="text-rose-400 hover:text-rose-200">
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      {/* Quick Student Suggestions Chips (Useful for demo & manual testing) */}
+      {/* Quick Student Suggestions Chips */}
       {studentsList.length > 0 && (
         <div className="mb-3">
-          <span className={`text-[11px] font-semibold block mb-1 ${isInline ? 'text-slate-400' : 'text-slate-500'}`}>
+          <span className="text-[11px] font-semibold block mb-1 text-slate-400">
             ⚡ Simulasi/Uji Coba Scan NISN Siswa:
           </span>
-          <div className={`flex flex-wrap gap-1 max-h-24 overflow-y-auto p-1.5 rounded-lg border ${isInline ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-100'}`}>
+          <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-1.5 rounded-lg border bg-slate-950 border-slate-800">
             {studentsList.slice(0, 10).map((st) => {
               const isAlreadyScanned = scannedMap.has(st.nisn);
               return (
@@ -542,7 +574,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                   className={`text-[10px] font-medium px-2 py-1 border rounded-md transition-colors text-left flex items-center gap-1 cursor-pointer ${
                     isAlreadyScanned
                       ? 'bg-slate-900 border-slate-800 text-slate-500 line-through'
-                      : isInline ? 'bg-slate-900 hover:bg-emerald-950 border-slate-700 text-slate-200' : 'bg-white hover:bg-emerald-50 border-slate-200 text-slate-700'
+                      : 'bg-slate-900 hover:bg-emerald-950 border-slate-700 text-slate-200'
                   }`}
                 >
                   <span className={`font-mono font-bold ${isAlreadyScanned ? 'text-slate-500' : 'text-emerald-400'}`}>{st.nisn}</span> - {st.name} ({st.className})
@@ -555,16 +587,16 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       )}
 
       {/* Footer */}
-      <div className={`flex justify-between items-center pt-3 border-t ${isInline ? 'border-slate-800' : 'border-slate-100'}`}>
-        <p className={`text-[11px] ${isInline ? 'text-slate-400' : 'text-slate-500'}`}>
+      <div className="flex justify-between items-center pt-3 border-t border-slate-800">
+        <p className="text-[11px] text-slate-400">
           Kamera otomatis tetap terbuka & memindai tanpa henti.
         </p>
         {onClose && (
           <button
-            onClick={onClose}
-            className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm"
+            onClick={handleFinishScan}
+            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-lg flex items-center gap-1.5"
           >
-            Selesai
+            <span>Selesai Scan (Keluar Layar Penuh)</span>
           </button>
         )}
       </div>
@@ -576,7 +608,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+    <div className="fixed inset-0 z-[100] bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-3 sm:p-6 overflow-y-auto w-full h-full min-h-screen">
       {scannerContent}
     </div>
   );
