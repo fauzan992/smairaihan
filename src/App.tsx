@@ -33,9 +33,9 @@ export default function App() {
   }, [user, activeTab]);
 
   // Fetch application state
-  const loadAppData = async () => {
+  const loadAppData = async (showLoadingSpinner: boolean = false) => {
     try {
-      setLoading(true);
+      if (showLoadingSpinner) setLoading(true);
       const master = await apiService.getMasterData();
       setStudents(master.students || []);
       setTeachers(master.teachers || []);
@@ -52,12 +52,12 @@ export default function App() {
     } catch (err) {
       console.error('Failed loading app data', err);
     } finally {
-      setLoading(false);
+      if (showLoadingSpinner) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadAppData();
+    loadAppData(true);
   }, []);
 
   const handleLogout = () => {
@@ -86,7 +86,7 @@ export default function App() {
   const handleResetData = async () => {
     if (confirm("Reset seluruh data demo SMA Islam Ra'iyatul Husnan ke kondisi awal?")) {
       await apiService.resetData();
-      await loadAppData();
+      await loadAppData(true);
     }
   };
 
