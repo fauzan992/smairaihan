@@ -207,68 +207,70 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
         </div>
       </div>
 
-      {/* Class Daily Metrics Bento Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-emerald-600 p-5 rounded-2xl shadow-md text-white flex flex-col justify-between hover:bg-emerald-700 transition-all">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-100">Hadir Hari Ini</p>
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/80 text-white flex items-center justify-center font-bold">
-              <UserCheck className="w-4 h-4" />
+      {/* Class Daily Metrics Bento Grid (Hidden when activeTab === 'scan') */}
+      {activeTab !== 'scan' && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-emerald-600 p-5 rounded-2xl shadow-md text-white flex flex-col justify-between hover:bg-emerald-700 transition-all">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-100">Hadir Hari Ini</p>
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/80 text-white flex items-center justify-center font-bold">
+                <UserCheck className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-3 flex items-end justify-between">
+              <span className="text-3xl font-black">{hadirCount}</span>
+              <span className="text-[10px] font-bold bg-emerald-700/80 px-2 py-1 rounded-lg">
+                {classStudents.length ? Math.round((hadirCount / classStudents.length) * 100) : 0}% Kelas
+              </span>
             </div>
           </div>
-          <div className="mt-3 flex items-end justify-between">
-            <span className="text-3xl font-black">{hadirCount}</span>
-            <span className="text-[10px] font-bold bg-emerald-700/80 px-2 py-1 rounded-lg">
-              {classStudents.length ? Math.round((hadirCount / classStudents.length) * 100) : 0}% Kelas
-            </span>
-          </div>
-        </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Izin</p>
-            <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
-              <Clock className="w-4 h-4" />
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Izin</p>
+              <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                <Clock className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-3 flex items-end justify-between">
+              <span className="text-3xl font-black text-slate-900">{izinCount}</span>
+              <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded-lg border border-amber-100">
+                Surat Izin
+              </span>
             </div>
           </div>
-          <div className="mt-3 flex items-end justify-between">
-            <span className="text-3xl font-black text-slate-900">{izinCount}</span>
-            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded-lg border border-amber-100">
-              Surat Izin
-            </span>
-          </div>
-        </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Sakit</p>
-            <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-              <AlertTriangle className="w-4 h-4" />
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Sakit</p>
+              <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-3 flex items-end justify-between">
+              <span className="text-3xl font-black text-slate-900">{sakitCount}</span>
+              <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">
+                Surat Dokter
+              </span>
             </div>
           </div>
-          <div className="mt-3 flex items-end justify-between">
-            <span className="text-3xl font-black text-slate-900">{sakitCount}</span>
-            <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">
-              Surat Dokter
-            </span>
-          </div>
-        </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Alpa</p>
-            <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
-              <XCircle className="w-4 h-4" />
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Alpa</p>
+              <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
+                <XCircle className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-3 flex items-end justify-between">
+              <span className="text-3xl font-black text-rose-600">{alpaCount}</span>
+              <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
+                Tanpa Ket.
+              </span>
             </div>
           </div>
-          <div className="mt-3 flex items-end justify-between">
-            <span className="text-3xl font-black text-rose-600">{alpaCount}</span>
-            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
-              Tanpa Ket.
-            </span>
-          </div>
         </div>
-      </div>
+      )}
 
       {/* Bento Tabs Container */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">

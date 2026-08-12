@@ -598,88 +598,90 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         />
       ) : (
         <>
-          {/* Top Overview Bento Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        {/* Total Siswa Bento Card */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest">Total Siswa</p>
-            <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center font-bold">
-              <GraduationCap className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-3 flex items-end justify-between">
-            <span className="text-3xl font-black text-slate-900">{totalStudentsCount}</span>
-            <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">
-              {classes.length} Kelas
-            </span>
-          </div>
-        </div>
+          {/* Top Overview Bento Grid (Hidden when activeTab === 'scan') */}
+          {activeTab !== 'scan' && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              {/* Total Siswa Bento Card */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest">Total Siswa</p>
+                  <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center font-bold">
+                    <GraduationCap className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-3 flex items-end justify-between">
+                  <span className="text-3xl font-black text-slate-900">{totalStudentsCount}</span>
+                  <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">
+                    {classes.length} Kelas
+                  </span>
+                </div>
+              </div>
 
-        {/* Hadir Hari Ini Bento Card (Hero Accent) */}
-        <div className="bg-emerald-600 p-5 rounded-2xl shadow-lg text-white flex flex-col justify-between hover:bg-emerald-700 transition-all">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] text-emerald-100 font-extrabold uppercase tracking-widest">Hadir Hari Ini</p>
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/80 text-white flex items-center justify-center font-bold">
-              <UserCheck className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-3 flex items-end justify-between">
-            <span className="text-3xl font-black">{totalHadirToday}</span>
-            <span className="text-[10px] text-emerald-100 font-bold bg-emerald-700/80 px-2 py-1 rounded-lg">
-              {totalStudentsCount ? Math.round((totalHadirToday / totalStudentsCount) * 100) : 0}% Target
-            </span>
-          </div>
-        </div>
+              {/* Hadir Hari Ini Bento Card (Hero Accent) */}
+              <div className="bg-emerald-600 p-5 rounded-2xl shadow-lg text-white flex flex-col justify-between hover:bg-emerald-700 transition-all">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-emerald-100 font-extrabold uppercase tracking-widest">Hadir Hari Ini</p>
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/80 text-white flex items-center justify-center font-bold">
+                    <UserCheck className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-3 flex items-end justify-between">
+                  <span className="text-3xl font-black">{totalHadirToday}</span>
+                  <span className="text-[10px] text-emerald-100 font-bold bg-emerald-700/80 px-2 py-1 rounded-lg">
+                    {totalStudentsCount ? Math.round((totalHadirToday / totalStudentsCount) * 100) : 0}% Target
+                  </span>
+                </div>
+              </div>
 
-        {/* Izin Hari Ini Bento Card */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest">Izin</p>
-            <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
-              <Clock className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-3 flex items-end justify-between">
-            <span className="text-3xl font-black text-slate-900">{totalIzinToday}</span>
-            <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-2 py-1 rounded-lg border border-amber-100">
-              Verifikasi
-            </span>
-          </div>
-        </div>
+              {/* Izin Hari Ini Bento Card */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest">Izin</p>
+                  <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-3 flex items-end justify-between">
+                  <span className="text-3xl font-black text-slate-900">{totalIzinToday}</span>
+                  <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-2 py-1 rounded-lg border border-amber-100">
+                    Verifikasi
+                  </span>
+                </div>
+              </div>
 
-        {/* Sakit Hari Ini Bento Card */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest">Sakit</p>
-            <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-              <AlertTriangle className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-3 flex items-end justify-between">
-            <span className="text-3xl font-black text-slate-900">{totalSakitToday}</span>
-            <span className="text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">
-              Surat Dokter
-            </span>
-          </div>
-        </div>
+              {/* Sakit Hari Ini Bento Card */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest">Sakit</p>
+                  <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-3 flex items-end justify-between">
+                  <span className="text-3xl font-black text-slate-900">{totalSakitToday}</span>
+                  <span className="text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">
+                    Surat Dokter
+                  </span>
+                </div>
+              </div>
 
-        {/* Alpa Hari Ini Bento Card */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all col-span-2 md:col-span-1">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest">Alpa</p>
-            <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
-              <XCircle className="w-4 h-4" />
+              {/* Alpa Hari Ini Bento Card */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all col-span-2 md:col-span-1">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest">Alpa</p>
+                  <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
+                    <XCircle className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-3 flex items-end justify-between">
+                  <span className="text-3xl font-black text-rose-600">{totalAlpaToday}</span>
+                  <span className="text-[10px] text-rose-700 font-bold bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
+                    Warning
+                  </span>
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="mt-3 flex items-end justify-between">
-            <span className="text-3xl font-black text-rose-600">{totalAlpaToday}</span>
-            <span className="text-[10px] text-rose-700 font-bold bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
-              Warning
-            </span>
-          </div>
-        </div>
-      </div>
+          )}
 
       {/* Main Content Area Controlled via Main Navbar / Sidebar */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden p-6">
