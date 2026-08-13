@@ -140,6 +140,33 @@ function saveLocalBKNotes(data: BKNote[]) {
   localStorage.setItem('app_bk_notes', JSON.stringify(data));
 }
 
+export const INITIAL_MASTER_SUBJECTS = [
+  'Matematika', 'Fisika', 'Biologi', 'Kimia',
+  'Bahasa Indonesia', 'Bahasa Inggris', 'Bahasa Arab',
+  'Pendidikan Agama Islam', 'Pendidikan Pancasila / PKn',
+  'Sejarah', 'Geografi', 'Sosiologi', 'Ekonomi',
+  'PJOK (Olahraga)', 'Seni Budaya', 'Informatika / Komputer',
+  'Prakarya & Kewirausahaan', 'Bimbingan Konseling (BK)'
+];
+
+function getLocalSubjects(): string[] {
+  const raw = localStorage.getItem('app_master_subjects');
+  if (!raw) {
+    localStorage.setItem('app_master_subjects', JSON.stringify(INITIAL_MASTER_SUBJECTS));
+    return [...INITIAL_MASTER_SUBJECTS];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : [...INITIAL_MASTER_SUBJECTS];
+  } catch {
+    return [...INITIAL_MASTER_SUBJECTS];
+  }
+}
+
+function saveLocalSubjects(data: string[]) {
+  localStorage.setItem('app_master_subjects', JSON.stringify(data));
+}
+
 // Background auto-sync to Supabase if configured in browser
 async function triggerAutoSupabaseSync() {
   try {
@@ -251,6 +278,16 @@ export const apiService = {
     }
     updateAppFavicon(settings.logoUrl);
     return { success: true, settings };
+  },
+
+  async getSubjects(): Promise<{ success: boolean; subjects: string[] }> {
+    const subjects = getLocalSubjects();
+    return { success: true, subjects };
+  },
+
+  async saveSubjects(subjects: string[]): Promise<{ success: boolean; subjects: string[]; message: string }> {
+    saveLocalSubjects(subjects);
+    return { success: true, subjects, message: 'Daftar mata pelajaran berhasil disimpan.' };
   },
 
   async updateSettings(settingsData: Partial<SchoolSettings>): Promise<{ success: boolean; settings?: SchoolSettings; message?: string; error?: string }> {

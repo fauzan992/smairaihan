@@ -22,7 +22,7 @@ import {
   Users, UserCheck, GraduationCap, School, Barcode, FileSpreadsheet,
   Plus, Edit, Trash2, Search, Filter, Download, Upload, CheckCircle2,
   XCircle, Clock, AlertTriangle, RefreshCw, Key, ArrowDownToLine, Eye, DoorOpen,
-  Printer, CreditCard, Image as ImageIcon, Camera, X, Award, HeartHandshake, QrCode
+  Printer, CreditCard, Image as ImageIcon, Camera, X, Award, HeartHandshake, QrCode, BookOpen, Check
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -33,8 +33,8 @@ interface AdminDashboardProps {
   bkNotes?: BKNote[];
   onRefreshData: () => void;
   externalActiveTab?: 'dashboard' | 'master' | 'discipline' | 'bk' | 'teacherAdmin' | 'scan' | 'reports' | 'import' | 'settings';
-  externalMasterSubTab?: 'students' | 'teachers' | 'classes' | 'guardians';
-  onTabChange?: (tab: 'dashboard' | 'master' | 'discipline' | 'bk' | 'teacherAdmin' | 'scan' | 'reports' | 'import' | 'settings', subTab?: 'students' | 'teachers' | 'classes' | 'guardians') => void;
+  externalMasterSubTab?: 'students' | 'teachers' | 'classes' | 'guardians' | 'subjects';
+  onTabChange?: (tab: 'dashboard' | 'master' | 'discipline' | 'bk' | 'teacherAdmin' | 'scan' | 'reports' | 'import' | 'settings', subTab?: 'students' | 'teachers' | 'classes' | 'guardians' | 'subjects') => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -49,7 +49,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onTabChange
 }) => {
   const [activeTab, setActiveTabState] = useState<'dashboard' | 'master' | 'discipline' | 'bk' | 'teacherAdmin' | 'scan' | 'reports' | 'import' | 'settings'>('dashboard');
-  const [masterSubTab, setMasterSubTabState] = useState<'students' | 'teachers' | 'classes' | 'guardians'>('students');
+  const [masterSubTab, setMasterSubTabState] = useState<'students' | 'teachers' | 'classes' | 'guardians' | 'subjects'>('students');
 
   React.useEffect(() => {
     if (externalActiveTab) setActiveTabState(externalActiveTab as any);
@@ -64,7 +64,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (onTabChange) onTabChange(tab);
   };
 
-  const setMasterSubTab = (subTab: 'students' | 'teachers' | 'classes' | 'guardians') => {
+  const setMasterSubTab = (subTab: 'students' | 'teachers' | 'classes' | 'guardians' | 'subjects') => {
     setMasterSubTabState(subTab);
     if (onTabChange) onTabChange(activeTab, subTab);
   };
@@ -159,6 +159,90 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     assignedClassId: '',
     role: 'guru' as 'admin' | 'guru' | 'bk'
   });
+
+  // Master Subject Management State
+  const [masterSubjects, setMasterSubjects] = useState<string[]>([]);
+  const [newSubjectInput, setNewSubjectInput] = useState<string>('');
+  const [subjectSearchQuery, setSubjectSearchQuery] = useState<string>('');
+  const [selectedTeacherForSubject, setSelectedTeacherForSubject] = useState<Teacher | null>(null);
+  const [selectedTeacherSubjects, setSelectedTeacherSubjects] = useState<string[]>([]);
+  const [customSubjectAdd, setCustomSubjectAdd] = useState<string>('');
+  const [isSavingTeacherSubjects, setIsSavingTeacherSubjects] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    apiService.getSubjects().then(res => {
+      if (res.success && res.subjects) {
+        setMasterSubjects(res.subjects);
+      }
+    });
+  }, []);
+
+  const handleAddMasterSubject = async () => {
+    const trimmed = newSubjectInput.trim();
+    if (!trimmed) return;
+    if (masterSubjects.includes(trimmed)) {
+      alert('Mata pelajaran ini sudah ada di daftar master.');
+      return;
+    }
+    const updated = [...masterSubjects, trimmed].sort();
+    setMasterSubjects(updated);
+    setNewSubjectInput('');
+    await apiService.saveSubjects(updated);
+  };
+
+  const handleDeleteMasterSubject = async (subjectToDelete: string) => {
+    if (!confirm(`Hapus mata pelajaran "${subjectToDelete}" dari daftar master?`)) return;
+    const updated = masterSubjects.filter(s => s !== subjectToDelete);
+    setMasterSubjects(updated);
+    await apiService.saveSubjects(updated);
+  };
+
+  const handleOpenAssignSubjectModal = (teacher: Teacher) => {
+    setSelectedTeacherForSubject(teacher);
+    const currentAssigned = teacher.subject
+      ? teacher.subject.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+    setSelectedTeacherSubjects(currentAssigned);
+    setCustomSubjectAdd('');
+  };
+
+  const handleToggleSubjectForTeacher = (subjectName: string) => {
+    if (selectedTeacherSubjects.includes(subjectName)) {
+      setSelectedTeacherSubjects(selectedTeacherSubjects.filter(s => s !== subjectName));
+    } else {
+      setSelectedTeacherSubjects([...selectedTeacherSubjects, subjectName]);
+    }
+  };
+
+  const handleAddCustomSubjectToTeacher = async () => {
+    const trimmed = customSubjectAdd.trim();
+    if (!trimmed) return;
+    if (!selectedTeacherSubjects.includes(trimmed)) {
+      setSelectedTeacherSubjects([...selectedTeacherSubjects, trimmed]);
+    }
+    if (!masterSubjects.includes(trimmed)) {
+      const updatedMaster = [...masterSubjects, trimmed].sort();
+      setMasterSubjects(updatedMaster);
+      await apiService.saveSubjects(updatedMaster);
+    }
+    setCustomSubjectAdd('');
+  };
+
+  const handleSaveTeacherSubjects = async () => {
+    if (!selectedTeacherForSubject) return;
+    setIsSavingTeacherSubjects(true);
+    const joinedSubjects = selectedTeacherSubjects.join(', ');
+    const res = await apiService.updateTeacher(selectedTeacherForSubject.id, {
+      subject: joinedSubjects || 'Mata Pelajaran'
+    });
+    setIsSavingTeacherSubjects(false);
+    if (res.success) {
+      setSelectedTeacherForSubject(null);
+      onRefreshData();
+    } else {
+      alert(res.error || 'Gagal menyimpan mata pelajaran guru.');
+    }
+  };
 
   // Delete Target Modal State
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -731,6 +815,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   >
                     Data Wali Murid
                   </button>
+                  <button
+                    onClick={() => setMasterSubTab('subjects')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                      masterSubTab === 'subjects'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
+                    Mapel & Pengampu
+                  </button>
                 </div>
 
                 {masterSubTab === 'students' && (
@@ -1238,6 +1333,218 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       ))}
                     </tbody>
                   </table>
+                </div>
+              )}
+
+              {/* SUBTAB: DATA MATA PELAJARAN & PEMETAAN GURU */}
+              {masterSubTab === 'subjects' && (
+                <div className="space-y-6 animate-in fade-in duration-200">
+                  {/* Info Banner */}
+                  <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white p-5 rounded-2xl shadow-sm border border-emerald-800/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <BookOpen className="w-5 h-5 text-amber-400" />
+                        <h3 className="text-base font-extrabold text-white">
+                          Pengaturan Master Mata Pelajaran & Pemetaan Guru
+                        </h3>
+                      </div>
+                      <p className="text-xs text-emerald-100 max-w-3xl leading-relaxed">
+                        Atur daftar mata pelajaran sekolah dan tentukan mata pelajaran yang diampu oleh setiap guru.
+                        Guru yang mengampu <strong>1 mapel</strong> akan <strong>otomatis terpilih</strong> saat mencatat KBM tanpa perlu memilih manual.
+                      </p>
+                    </div>
+                    <div className="shrink-0 bg-white/10 backdrop-blur-xs px-3 py-2 rounded-xl border border-white/15 text-center">
+                      <p className="text-[10px] uppercase tracking-wider font-extrabold text-emerald-300">Total Mapel Master</p>
+                      <p className="text-xl font-black text-amber-300">{masterSubjects.length} Mapel</p>
+                    </div>
+                  </div>
+
+                  {/* Section 1: Manage Master Subjects */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-2xs space-y-4">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                      <div>
+                        <h4 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                          <span>📚 Daftar Master Mata Pelajaran Sekolah</span>
+                        </h4>
+                        <p className="text-xs text-slate-500">
+                          Daftar mapel resmi yang digunakan untuk absensi KBM & penugasan guru.
+                        </p>
+                      </div>
+
+                      {/* Input Add New Master Subject */}
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <input
+                          type="text"
+                          value={newSubjectInput}
+                          onChange={(e) => setNewSubjectInput(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleAddMasterSubject()}
+                          placeholder="+ Tambah Mapel Baru..."
+                          className="p-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 w-full sm:w-64"
+                        />
+                        <button
+                          onClick={handleAddMasterSubject}
+                          disabled={!newSubjectInput.trim()}
+                          className="px-3 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white rounded-xl text-xs font-extrabold shrink-0 cursor-pointer transition-all flex items-center gap-1"
+                        >
+                          <Plus className="w-4 h-4" /> Tambah
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* List Chips of Master Subjects */}
+                    <div className="flex flex-wrap gap-2 pt-1 max-h-56 overflow-y-auto p-2 bg-slate-50/80 rounded-xl border border-slate-200/80">
+                      {masterSubjects.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic p-3">Belum ada mata pelajaran. Silakan tambahkan di atas.</p>
+                      ) : (
+                        masterSubjects.map((sbj) => {
+                          const countTeachers = teachers.filter(t => t.subject && t.subject.split(',').map(s=>s.trim()).includes(sbj)).length;
+                          return (
+                            <div
+                              key={sbj}
+                              className="bg-white border border-slate-200 hover:border-emerald-300 px-3 py-1.5 rounded-xl flex items-center gap-2 text-xs font-extrabold text-slate-800 shadow-2xs group transition-all"
+                            >
+                              <span>{sbj}</span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
+                                {countTeachers} Guru
+                              </span>
+                              <button
+                                onClick={() => handleDeleteMasterSubject(sbj)}
+                                className="text-slate-300 hover:text-rose-600 transition-colors ml-1 p-0.5 rounded cursor-pointer"
+                                title="Hapus Mapel dari Master"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Section 2: Teacher Subject Mapping Table */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-2xs space-y-4">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                      <div>
+                        <h4 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                          <span>👨‍🏫 Pemetaan Mata Pelajaran yang Diampu Guru</span>
+                        </h4>
+                        <p className="text-xs text-slate-500">
+                          Tentukan mapel untuk tiap guru. Guru yang mengampu 1 mapel tidak perlu memilih mapel lagi saat KBM.
+                        </p>
+                      </div>
+
+                      {/* Filter / Search Teachers */}
+                      <div className="relative w-full sm:w-64">
+                        <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                        <input
+                          type="text"
+                          value={subjectSearchQuery}
+                          onChange={(e) => setSubjectSearchQuery(e.target.value)}
+                          placeholder="Cari Guru atau Mapel..."
+                          className="w-full pl-8 pr-3 py-1.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                      <table className="w-full text-left text-xs text-slate-700">
+                        <thead className="bg-slate-50 border-b border-slate-200 font-bold uppercase text-[10px] text-slate-500">
+                          <tr>
+                            <th className="p-3">No</th>
+                            <th className="p-3">Nama Guru & NIP</th>
+                            <th className="p-3">Role Akses</th>
+                            <th className="p-3">Wali Kelas</th>
+                            <th className="p-3">Mata Pelajaran Diampu</th>
+                            <th className="p-3">Status KBM</th>
+                            <th className="p-3 text-right">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {teachers
+                            .filter(t => {
+                              if (!subjectSearchQuery.trim()) return true;
+                              const q = subjectSearchQuery.toLowerCase();
+                              return t.name.toLowerCase().includes(q) ||
+                                t.nip.toLowerCase().includes(q) ||
+                                (t.subject && t.subject.toLowerCase().includes(q));
+                            })
+                            .map((t, idx) => {
+                              const assignedList = t.subject
+                                ? t.subject.split(',').map(s => s.trim()).filter(Boolean)
+                                : [];
+                              return (
+                                <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
+                                  <td className="p-3 font-semibold text-slate-400">{idx + 1}</td>
+                                  <td className="p-3">
+                                    <p className="font-extrabold text-slate-900">{t.name}</p>
+                                    <p className="font-mono text-[11px] text-slate-400">NIP: {t.nip || '-'}</p>
+                                  </td>
+                                  <td className="p-3 font-semibold">
+                                    {t.role === 'admin' ? (
+                                      <span className="px-2 py-0.5 text-[10px] font-extrabold text-purple-700 bg-purple-100 rounded-full border border-purple-200">
+                                        Admin
+                                      </span>
+                                    ) : t.role === 'bk' ? (
+                                      <span className="px-2 py-0.5 text-[10px] font-extrabold text-amber-700 bg-amber-100 rounded-full border border-amber-200">
+                                        Guru BK
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 text-[10px] font-extrabold text-blue-700 bg-blue-100 rounded-full border border-blue-200">
+                                        Guru Pengajar
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="p-3 font-semibold text-slate-700">{t.assignedClassName || '-'}</td>
+                                  <td className="p-3">
+                                    {assignedList.length === 0 ? (
+                                      <span className="text-rose-500 font-semibold text-[11px] italic bg-rose-50 px-2 py-0.5 rounded border border-rose-200 inline-block">
+                                        ⚠️ Belum Diatur
+                                      </span>
+                                    ) : (
+                                      <div className="flex flex-wrap gap-1 max-w-xs">
+                                        {assignedList.map(sbj => (
+                                          <span
+                                            key={sbj}
+                                            className="px-2 py-0.5 text-[10px] font-extrabold text-emerald-800 bg-emerald-50 rounded-md border border-emerald-200 inline-block"
+                                          >
+                                            📚 {sbj}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="p-3">
+                                    {assignedList.length === 1 ? (
+                                      <span className="px-2.5 py-1 text-[10px] font-extrabold text-emerald-800 bg-emerald-100/80 rounded-full border border-emerald-300 inline-flex items-center gap-1">
+                                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                        Otomatis (1 Mapel)
+                                      </span>
+                                    ) : assignedList.length > 1 ? (
+                                      <span className="px-2.5 py-1 text-[10px] font-extrabold text-amber-800 bg-amber-100/80 rounded-full border border-amber-300 inline-flex items-center gap-1">
+                                        <RefreshCw className="w-3 h-3 text-amber-600" />
+                                        Pilihan ({assignedList.length} Mapel)
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 text-[10px] font-bold text-slate-500 bg-slate-100 rounded-full border border-slate-200">
+                                        Default Sistem
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="p-3 text-right">
+                                    <button
+                                      onClick={() => handleOpenAssignSubjectModal(t)}
+                                      className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold cursor-pointer transition-all inline-flex items-center gap-1.5 shadow-2xs"
+                                    >
+                                      <BookOpen className="w-3.5 h-3.5" /> Atur Mapel
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -2408,6 +2715,136 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold cursor-pointer transition-all"
               >
                 Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Pengaturan Mapel Guru */}
+      {selectedTeacherForSubject && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-slate-200">
+            <div className="flex justify-between items-start border-b border-slate-100 pb-3">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase text-emerald-700 tracking-wider">
+                  Pengaturan Mapel Guru
+                </span>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  {selectedTeacherForSubject.name}
+                </h3>
+                <p className="text-xs text-slate-500 font-mono">
+                  NIP: {selectedTeacherForSubject.nip || '-'} • Wali Kelas: {selectedTeacherForSubject.assignedClassName || '-'}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedTeacherForSubject(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Centang mata pelajaran yang diampu oleh <strong>{selectedTeacherForSubject.name}</strong>.
+                <br />
+                <span className="text-emerald-700 font-bold">
+                  💡 Jika guru hanya mengampu 1 mapel, mapel tersebut akan otomatis terpilih di dashboard KBM tanpa perlu memilih manual.
+                </span>
+              </p>
+
+              {/* Master Subjects Checkboxes */}
+              <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-xl p-3 bg-slate-50/50 space-y-1.5">
+                {masterSubjects.map((sbj) => {
+                  const isChecked = selectedTeacherSubjects.includes(sbj);
+                  return (
+                    <div
+                      key={sbj}
+                      onClick={() => handleToggleSubjectForTeacher(sbj)}
+                      className={`flex items-center justify-between p-2.5 rounded-xl text-xs font-extrabold cursor-pointer transition-all border ${
+                        isChecked
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-950 shadow-2xs'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {}}
+                          className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
+                        />
+                        <span>📚 {sbj}</span>
+                      </div>
+                      {isChecked && (
+                        <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
+                          Diampu
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Custom Subject Input on the Fly */}
+              <div className="pt-2 border-t border-slate-100">
+                <label className="block text-[11px] font-extrabold uppercase text-slate-600 mb-1">
+                  + Tambah Mapel Lain (Luar Master)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customSubjectAdd}
+                    onChange={(e) => setCustomSubjectAdd(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddCustomSubjectToTeacher()}
+                    placeholder="Contoh: Tahfidh Al-Qur'an..."
+                    className="p-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 w-full"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddCustomSubjectToTeacher}
+                    disabled={!customSubjectAdd.trim()}
+                    className="px-3 py-2 bg-slate-800 hover:bg-black text-white disabled:opacity-50 text-xs font-bold rounded-xl cursor-pointer shrink-0"
+                  >
+                    + Tambah
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Selected Summary Badge */}
+            <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase text-emerald-800 tracking-wider">Ringkasan Penugasan</span>
+                <p className="text-xs font-extrabold text-slate-900 mt-0.5">
+                  {selectedTeacherSubjects.length === 0
+                    ? 'Belum ada mapel terpilih'
+                    : selectedTeacherSubjects.length === 1
+                    ? `1 Mapel: ${selectedTeacherSubjects[0]} (Otomatis KBM)`
+                    : `${selectedTeacherSubjects.length} Mapel: ${selectedTeacherSubjects.join(', ')}`}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setSelectedTeacherForSubject(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition-all"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleSaveTeacherSubjects}
+                disabled={isSavingTeacherSubjects}
+                className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-extrabold rounded-xl cursor-pointer transition-all flex items-center gap-1.5 shadow-sm"
+              >
+                {isSavingTeacherSubjects ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Check className="w-4 h-4" />
+                )}
+                Simpan Pengaturan Mapel Guru
               </button>
             </div>
           </div>

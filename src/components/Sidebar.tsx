@@ -12,8 +12,8 @@ interface SidebarProps {
   onToggle: () => void;
   user: User | null;
   activeTab: 'dashboard' | 'master' | 'discipline' | 'bk' | 'teacherAdmin' | 'scan' | 'reports' | 'import' | 'settings';
-  onSelectTab: (tab: 'dashboard' | 'master' | 'discipline' | 'bk' | 'teacherAdmin' | 'scan' | 'reports' | 'import' | 'settings', subTab?: 'students' | 'teachers' | 'classes' | 'guardians') => void;
-  masterSubTab?: 'students' | 'teachers' | 'classes' | 'guardians';
+  onSelectTab: (tab: 'dashboard' | 'master' | 'discipline' | 'bk' | 'teacherAdmin' | 'scan' | 'reports' | 'import' | 'settings', subTab?: 'students' | 'teachers' | 'classes' | 'guardians' | 'subjects') => void;
+  masterSubTab?: 'students' | 'teachers' | 'classes' | 'guardians' | 'subjects';
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -30,7 +30,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const handleNavClick = (
     tab: 'dashboard' | 'master' | 'discipline' | 'bk' | 'teacherAdmin' | 'scan' | 'reports' | 'import' | 'settings',
-    subTab?: 'students' | 'teachers' | 'classes' | 'guardians'
+    subTab?: 'students' | 'teachers' | 'classes' | 'guardians' | 'subjects'
   ) => {
     onSelectTab(tab, subTab);
     if (isOpen) {
@@ -149,6 +149,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }`}
                   >
                     <span>👨‍👩‍👦 Data Wali Murid</span>
+                  </button>
+                  <button
+                    onClick={() => handleNavClick('master', 'subjects')}
+                    className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center justify-between cursor-pointer ${
+                      activeTab === 'master' && masterSubTab === 'subjects'
+                        ? 'bg-amber-400 text-slate-950 font-extrabold shadow-xs'
+                        : 'text-emerald-300 hover:text-white hover:bg-emerald-900/40'
+                    }`}
+                  >
+                    <span>📚 Mapel & Pengampu</span>
                   </button>
                 </div>
               )}

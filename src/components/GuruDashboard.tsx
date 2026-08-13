@@ -353,9 +353,9 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
                 <BarcodeScannerModal
                   isInline={true}
                   onSuccessScan={onRefreshData}
-                  recordedByRole="guru"
-                  recordedByName={user.name}
-                  studentsList={classStudents}
+                  recordedByRole="guru_piket"
+                  recordedByName={user.name ? `Guru Piket (${user.name})` : 'Guru Piket'}
+                  studentsList={students && students.length > 0 ? students : classStudents}
                 />
               </div>
 
@@ -682,9 +682,9 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
         <BarcodeScannerModal
           onClose={() => setShowScannerModal(false)}
           onSuccessScan={onRefreshData}
-          recordedByRole="guru"
-          recordedByName={user.name}
-          studentsList={classStudents}
+          recordedByRole="guru_piket"
+          recordedByName={user.name ? `Guru Piket (${user.name})` : 'Guru Piket'}
+          studentsList={students && students.length > 0 ? students : classStudents}
         />
       )}
 

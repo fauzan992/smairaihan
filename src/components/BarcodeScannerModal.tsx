@@ -2,12 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { apiService } from '../services/apiService';
 import { AttendanceStatus, Student, AttendanceRecord } from '../types';
-import { Camera, Barcode, CheckCircle2, AlertCircle, X, Volume2, UserCheck, RefreshCw, AlertTriangle, ShieldCheck, Maximize2, Minimize2 } from 'lucide-react';
+import { Camera, Barcode, CheckCircle2, AlertCircle, X, Volume2, UserCheck, RefreshCw, AlertTriangle, ShieldCheck, Maximize2, Minimize2, Search, UserX, Filter, GraduationCap, Building2 } from 'lucide-react';
 
 interface BarcodeScannerModalProps {
   onClose?: () => void;
   onSuccessScan?: () => void;
-  recordedByRole?: 'admin' | 'guru';
+  recordedByRole?: 'admin' | 'guru' | 'guru_piket' | 'piket';
   recordedByName?: string;
   defaultStatus?: AttendanceStatus;
   studentsList?: Student[];
@@ -17,8 +17,8 @@ interface BarcodeScannerModalProps {
 export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   onClose,
   onSuccessScan,
-  recordedByRole = 'admin',
-  recordedByName = 'Petugas Piket',
+  recordedByRole = 'guru_piket',
+  recordedByName = 'Guru Piket Gerbang',
   defaultStatus = 'Hadir',
   studentsList = [],
   isInline = false
@@ -29,6 +29,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [scannerMode, setScannerMode] = useState<'camera' | 'usb' | 'manual'>('camera');
   const [loading, setLoading] = useState(false);
   const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
+  
+  // Manual student search & class filter states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedClassFilter, setSelectedClassFilter] = useState<string>('all');
   
   // Track students who have been scanned today to prevent duplicate scans
   const [scannedMap, setScannedMap] = useState<Map<string, { studentName: string; className: string; status: string; time: string }>>(new Map());
@@ -51,6 +55,24 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const lastScannedCodeRef = useRef<{ code: string; timestamp: number } | null>(null);
   const isProcessingRef = useRef<boolean>(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // Derived available classes for filtering
+  const availableClasses = Array.from(
+    new Set(studentsList.map((s) => s.className).filter(Boolean))
+  ).sort();
+
+  // Filtered students list for manual search
+  const filteredStudents = studentsList.filter((student) => {
+    const matchesClass =
+      selectedClassFilter === 'all' || student.className === selectedClassFilter;
+    const query = searchQuery.trim().toLowerCase();
+    const matchesQuery =
+      !query ||
+      student.name.toLowerCase().includes(query) ||
+      student.nisn.toLowerCase().includes(query) ||
+      student.className.toLowerCase().includes(query);
+    return matchesClass && matchesQuery;
+  });
 
   // Fullscreen handlers
   const toggleFullscreen = () => {
@@ -141,10 +163,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     };
   }, []);
 
-  const handleProcessNisn = async (code: string) => {
+  const handleProcessNisn = async (code: string, overrideStatus?: AttendanceStatus) => {
     if (!code || isProcessingRef.current) return;
     const cleanNisn = code.trim();
     if (cleanNisn.length < 3) return;
+
+    const statusToUse = overrideStatus || selectedStatus;
 
     const now = Date.now();
 
@@ -176,7 +200,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     try {
       const res = await apiService.scanBarcode(
         cleanNisn,
-        selectedStatus,
+        statusToUse,
         notes,
         recordedByName,
         recordedByRole
@@ -324,10 +348,13 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             <Barcode className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-bold text-lg leading-tight text-white">
                 {isInline ? 'Scanner Barcode & QR NISN Live' : 'Scanner QR Code & Barcode NISN (Layar Penuh)'}
               </h3>
+              <span className="bg-sky-500/20 text-sky-300 border border-sky-500/40 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                <Building2 className="w-3 h-3 text-sky-400" /> Pos Piket Gerbang (Kehadiran Sekolah)
+              </span>
               <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
                 <ShieldCheck className="w-3 h-3 text-emerald-400" /> Anti-Scan Ganda
               </span>
@@ -401,11 +428,11 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           onClick={() => setScannerMode('manual')}
           className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
             scannerMode === 'manual'
-              ? 'bg-emerald-600 text-white shadow-xs font-bold'
-              : 'text-slate-400 hover:text-white'
+              ? 'bg-amber-600 text-white shadow-xs font-bold'
+              : 'text-amber-400 hover:text-amber-200'
           }`}
         >
-          <UserCheck className="w-3.5 h-3.5" /> Input NISN
+          <UserCheck className="w-3.5 h-3.5" /> Absensi Manual (Lupa Kartu)
         </button>
       </div>
 
@@ -443,33 +470,40 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         </div>
       </div>
 
-      {/* Scanner Camera Body Area */}
-      <div className="relative mb-3 min-h-[260px] bg-slate-950 rounded-2xl overflow-hidden flex flex-col items-center justify-center p-2 border border-slate-800 shadow-inner">
+      {/* Scanner Camera / Manual Body Area */}
+      <div className="relative mb-3 min-h-[260px] bg-slate-950 rounded-2xl overflow-hidden flex flex-col items-center justify-center p-3 border border-slate-800 shadow-inner">
         {scannerMode === 'camera' && (
           <div className="w-full relative flex flex-col items-center">
             <div id={uniqueReaderId} className="w-full max-w-[360px] rounded-xl overflow-hidden text-white text-xs"></div>
             
-            <div className="mt-2 text-center">
+            <div className="mt-2 text-center flex flex-col items-center gap-1.5">
               <span className="text-[11px] font-medium text-emerald-400 bg-emerald-950/90 px-3 py-1 rounded-full border border-emerald-800/80 inline-flex items-center gap-1.5 shadow-sm">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
                 Kamera Belakang Aktif — Siap Pindai QR / Barcode Kartu NISN
               </span>
+
+              <button
+                type="button"
+                onClick={() => setScannerMode('manual')}
+                className="text-[11px] text-amber-400 hover:text-amber-300 font-bold bg-amber-950/80 hover:bg-amber-900 px-3 py-1 rounded-xl border border-amber-800/80 inline-flex items-center gap-1.5 cursor-pointer transition-all mt-1"
+              >
+                <UserCheck className="w-3.5 h-3.5 text-amber-400" />
+                <span>Siswa Lupa Kartu Pelajar? Absensi Manual & Cari Nama Siswa</span>
+              </button>
             </div>
           </div>
         )}
 
-        {(scannerMode === 'usb' || scannerMode === 'manual') && (
+        {scannerMode === 'usb' && (
           <form onSubmit={handleManualSubmit} className="w-full max-w-sm p-4 text-center">
             <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-3 border border-emerald-500/30">
               <Barcode className="w-6 h-6" />
             </div>
             <h4 className="text-white font-semibold text-sm mb-1">
-              {scannerMode === 'usb' ? 'Modus Scanner USB / Bluetooth' : 'Ketik NISN Siswa'}
+              Modus Scanner USB / Bluetooth
             </h4>
             <p className="text-xs text-slate-400 mb-4">
-              {scannerMode === 'usb'
-                ? 'Gunakan alat scanner barcode fisik. Hasil scan akan otomatis terisi dan diproses.'
-                : 'Ketik 10 digit NISN siswa dan tekan Enter.'}
+              Gunakan alat scanner barcode fisik. Hasil scan akan otomatis terisi dan diproses.
             </p>
 
             <div className="flex gap-2">
@@ -491,6 +525,169 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               </button>
             </div>
           </form>
+        )}
+
+        {scannerMode === 'manual' && (
+          <div className="w-full space-y-3">
+            {/* Header / Info Bar */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center font-bold shrink-0">
+                  <UserCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-white font-extrabold text-xs sm:text-sm">
+                    Absensi Manual Siswa (Lupa / Tidak Membawa Kartu Pelajar)
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Cari nama siswa atau pilih kelas untuk mencatat presensi secara langsung.
+                  </p>
+                </div>
+              </div>
+
+              {/* Search & Class Filter Controls */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                <div className="sm:col-span-8 relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Cari Nama Siswa atau NISN..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2 bg-slate-950 border border-slate-700 text-white placeholder-slate-500 text-xs font-semibold rounded-xl focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="sm:col-span-4 relative">
+                  <select
+                    value={selectedClassFilter}
+                    onChange={(e) => setSelectedClassFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 text-amber-300 text-xs font-bold rounded-xl focus:outline-none focus:border-amber-500 cursor-pointer"
+                  >
+                    <option value="all">Semua Kelas ({studentsList.length})</option>
+                    {availableClasses.map((cls) => (
+                      <option key={cls} value={cls}>
+                        Kelas {cls}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Direct NISN Submit Option */}
+              <form onSubmit={handleManualSubmit} className="flex gap-2 pt-2 border-t border-slate-800">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  placeholder="Atau ketik 10 digit NISN langsung..."
+                  value={manualNisn}
+                  onChange={(e) => setManualNisn(e.target.value)}
+                  className="flex-1 px-3 py-1.5 bg-slate-950 border border-slate-800 text-amber-300 font-mono text-xs font-bold rounded-lg focus:outline-none focus:border-amber-500"
+                />
+                <button
+                  type="submit"
+                  disabled={loading || !manualNisn}
+                  className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-lg disabled:opacity-50 cursor-pointer transition-colors"
+                >
+                  Proses NISN
+                </button>
+              </form>
+            </div>
+
+            {/* Filtered Students List Results */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center px-1">
+                <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">
+                  Daftar Siswa ({filteredStudents.length})
+                </span>
+                <span className="text-[10px] text-amber-400/90 font-medium italic">
+                  Status Terpilih: <strong className="text-white font-extrabold">{selectedStatus}</strong>
+                </span>
+              </div>
+
+              <div className="max-h-[200px] overflow-y-auto space-y-1.5 pr-1">
+                {filteredStudents.length === 0 ? (
+                  <div className="text-center py-6 bg-slate-900/60 rounded-xl border border-slate-800 text-slate-400 p-4">
+                    <UserX className="w-7 h-7 text-slate-600 mx-auto mb-1.5" />
+                    <p className="text-xs font-bold text-slate-300">Tidak ada siswa ditemukan</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Coba ubah nama pencarian atau pilih kelas di atas.
+                    </p>
+                  </div>
+                ) : (
+                  filteredStudents.map((st) => {
+                    const existingRecord = scannedMap.get(st.nisn);
+                    return (
+                      <div
+                        key={st.id || st.nisn}
+                        className={`p-2.5 rounded-xl border transition-all flex items-center justify-between gap-2 ${
+                          existingRecord
+                            ? 'bg-slate-900/80 border-emerald-900/40'
+                            : 'bg-slate-900 border-slate-800 hover:border-amber-500/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shrink-0 ${
+                            existingRecord ? 'bg-emerald-900/50 text-emerald-400 border border-emerald-700/50' : 'bg-slate-800 text-amber-400 border border-slate-700'
+                          }`}>
+                            {st.name.substring(0, 2).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <h5 className="font-bold text-xs text-white truncate">{st.name}</h5>
+                              <span className="text-[10px] font-extrabold bg-slate-800 text-amber-300 border border-slate-700 px-1.5 py-0.2 rounded shrink-0">
+                                {st.className}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] font-mono text-slate-400">
+                                NISN: {st.nisn}
+                              </span>
+                              {existingRecord && (
+                                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950 px-1.5 py-0.2 rounded border border-emerald-800 flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  {existingRecord.status} ({existingRecord.time} WIB)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Quick Action Button */}
+                        <div className="shrink-0">
+                          {existingRecord ? (
+                            <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-800">
+                              Sudah Presensi
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleProcessNisn(st.nisn, selectedStatus)}
+                              disabled={loading}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black shadow-xs cursor-pointer flex items-center gap-1 transition-transform active:scale-95 disabled:opacity-50"
+                              title={`Catat ${st.name} sebagai ${selectedStatus}`}
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Catat {selectedStatus}</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
         )}
 
         {loading && (

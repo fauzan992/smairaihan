@@ -23,7 +23,7 @@ export default function App() {
   // Left Sidebar State & Tab Controls
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'master' | 'discipline' | 'bk' | 'teacherAdmin' | 'scan' | 'reports' | 'import' | 'settings'>('dashboard');
-  const [masterSubTab, setMasterSubTab] = useState<'students' | 'teachers' | 'classes' | 'guardians'>('students');
+  const [masterSubTab, setMasterSubTab] = useState<'students' | 'teachers' | 'classes' | 'guardians' | 'subjects'>('students');
 
   // Guard activeTab based on user role when user changes
   useEffect(() => {

@@ -46,12 +46,12 @@ export const WaliMuridDashboard: React.FC<WaliMuridDashboardProps> = ({
   const todayStr = new Date().toISOString().split('T')[0];
   const todayRecords = childRecords.filter(r => r.date === todayStr);
 
-  // Separate Gate Scan (Piket) vs KBM (Teacher) records today
-  const todayGateRecord = todayRecords.find(r => r.recordedByRole !== 'guru' && !r.notes?.includes('[KBM'));
-  const todayKbmRecords = todayRecords.filter(r => r.recordedByRole === 'guru' || r.notes?.includes('[KBM'));
+  // Separate Gate Scan (Piket Pos Gerbang) vs KBM (Teacher Subject) records today
+  const todayGateRecord = todayRecords.find(r => !r.notes?.includes('[KBM') && r.recordedByRole !== 'guru_mapel');
+  const todayKbmRecords = todayRecords.filter(r => r.notes?.includes('[KBM') || r.recordedByRole === 'guru_mapel');
 
   // All KBM Records across time
-  const allKbmRecords = childRecords.filter(r => r.recordedByRole === 'guru' || r.notes?.includes('[KBM'));
+  const allKbmRecords = childRecords.filter(r => r.notes?.includes('[KBM') || r.recordedByRole === 'guru_mapel');
 
   // Helper parser for KBM info
   const parseKbmRecord = (rec: AttendanceRecord) => {
@@ -772,7 +772,7 @@ export const WaliMuridDashboard: React.FC<WaliMuridDashboardProps> = ({
                   </tr>
                 ) : (
                   filteredHistoryRecords.map((rec, idx) => {
-                    const isKbm = rec.recordedByRole === 'guru' || rec.notes?.includes('[KBM');
+                    const isKbm = rec.notes?.includes('[KBM') || rec.recordedByRole === 'guru_mapel';
                     const info = parseKbmRecord(rec);
 
                     return (

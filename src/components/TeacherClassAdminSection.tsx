@@ -90,14 +90,40 @@ export const TeacherClassAdminSection: React.FC<TeacherClassAdminSectionProps> =
     user.classId || classes[0]?.id || ''
   );
 
-  // Dynamic Subject list merging teachers' subjects and default subjects
-  const teacherSubjects = Array.from(
-    new Set(teachers.map(t => t.subject).filter((s): s is string => Boolean(s && s.trim())))
+  // Find current teacher object to parse assigned subjects from Admin
+  const currentTeacher = teachers.find(
+    t => t.id === user.id || t.username === user.username || t.nip === user.nip
   );
-  const allSubjects = Array.from(new Set([...teacherSubjects, ...DEFAULT_SUBJECTS])).sort();
+  const rawSubjectStr = currentTeacher?.subject || user.subject || '';
+  const assignedSubjects = Array.from(
+    new Set(
+      rawSubjectStr
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+    )
+  );
+
+  // Master Subjects list from settings
+  const [masterSubjectsList, setMasterSubjectsList] = useState<string[]>(DEFAULT_SUBJECTS);
+
+  useEffect(() => {
+    apiService.getSubjects().then(res => {
+      if (res.success && res.subjects && res.subjects.length > 0) {
+        setMasterSubjectsList(res.subjects);
+      }
+    });
+  }, []);
+
+  const allSubjects = Array.from(
+    new Set([...assignedSubjects, ...masterSubjectsList])
+  ).sort();
 
   // Subject Form state & Custom input toggle
-  const [subjectName, setSubjectName] = useState<string>(user.subject || allSubjects[0] || 'Matematika');
+  const [subjectName, setSubjectName] = useState<string>(() => {
+    if (assignedSubjects.length > 0) return assignedSubjects[0];
+    return user.subject || 'Matematika';
+  });
   const [isCustomSubject, setIsCustomSubject] = useState<boolean>(false);
 
   // Lesson Session / Hour configuration & persistence
@@ -616,47 +642,126 @@ export const TeacherClassAdminSection: React.FC<TeacherClassAdminSectionProps> =
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
-                Mata Pelajaran
-              </label>
-              <button
-                type="button"
-                onClick={() => setIsCustomSubject(!isCustomSubject)}
-                className="text-[10px] font-bold text-emerald-700 hover:underline cursor-pointer"
-              >
-                {isCustomSubject ? 'Pilih dari Daftar' : '+ Manual / Lainnya'}
-              </button>
-            </div>
-
-            {!isCustomSubject ? (
-              <select
-                value={allSubjects.includes(subjectName) ? subjectName : subjectName ? '__CUSTOM__' : ''}
-                onChange={(e) => {
-                  if (e.target.value === '__CUSTOM__') {
-                    setIsCustomSubject(true);
-                  } else {
-                    setSubjectName(e.target.value);
-                  }
-                }}
-                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500"
-              >
-                {allSubjects.map((sbj) => (
-                  <option key={sbj} value={sbj}>
-                    {sbj} {teacherSubjects.includes(sbj) ? '(Mapel Guru)' : ''}
-                  </option>
-                ))}
-                <option value="__CUSTOM__">➕ Input Mapel Lain (Manual)...</option>
-              </select>
+            {isCustomSubject ? (
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
+                    Mata Pelajaran (Manual)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomSubject(false)}
+                    className="text-[10px] font-bold text-emerald-700 hover:underline cursor-pointer"
+                  >
+                    Pilih dari Daftar
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={subjectName}
+                  onChange={(e) => setSubjectName(e.target.value)}
+                  placeholder="Ketik nama mata pelajaran..."
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500"
+                  autoFocus
+                />
+              </div>
+            ) : assignedSubjects.length === 1 ? (
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
+                    Mata Pelajaran Diampu
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomSubject(true)}
+                    className="text-[10px] font-bold text-emerald-700 hover:underline cursor-pointer"
+                  >
+                    Substitusi Mapel
+                  </button>
+                </div>
+                <div className="bg-emerald-50/90 border border-emerald-200 rounded-xl p-2.5 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                      📚
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-xs font-extrabold text-slate-900 truncate">{subjectName}</p>
+                        <span className="bg-emerald-200/70 text-emerald-900 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-emerald-300">
+                          Otomatis Admin
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 truncate">1 Mapel diampu, tidak perlu pilih manual</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : assignedSubjects.length > 1 ? (
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
+                    Mata Pelajaran ({assignedSubjects.length} Diampu)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomSubject(true)}
+                    className="text-[10px] font-bold text-emerald-700 hover:underline cursor-pointer"
+                  >
+                    + Mapel Lain
+                  </button>
+                </div>
+                <select
+                  value={subjectName}
+                  onChange={(e) => {
+                    if (e.target.value === '__CUSTOM__') {
+                      setIsCustomSubject(true);
+                    } else {
+                      setSubjectName(e.target.value);
+                    }
+                  }}
+                  className="w-full p-2.5 bg-amber-50/80 border border-amber-300 rounded-xl text-xs font-extrabold text-amber-950 focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                >
+                  {assignedSubjects.map((sbj) => (
+                    <option key={sbj} value={sbj}>
+                      📚 {sbj} (Mapel Diampu)
+                    </option>
+                  ))}
+                  <option value="__CUSTOM__">➕ Input Mapel Lain (Substitusi)...</option>
+                </select>
+              </div>
             ) : (
-              <input
-                type="text"
-                value={subjectName}
-                onChange={(e) => setSubjectName(e.target.value)}
-                placeholder="Ketik Mata Pelajaran..."
-                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500"
-                autoFocus
-              />
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
+                    Mata Pelajaran
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomSubject(true)}
+                    className="text-[10px] font-bold text-emerald-700 hover:underline cursor-pointer"
+                  >
+                    + Manual
+                  </button>
+                </div>
+                <select
+                  value={allSubjects.includes(subjectName) ? subjectName : subjectName ? '__CUSTOM__' : ''}
+                  onChange={(e) => {
+                    if (e.target.value === '__CUSTOM__') {
+                      setIsCustomSubject(true);
+                    } else {
+                      setSubjectName(e.target.value);
+                    }
+                  }}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                >
+                  {allSubjects.map((sbj) => (
+                    <option key={sbj} value={sbj}>
+                      {sbj}
+                    </option>
+                  ))}
+                  <option value="__CUSTOM__">➕ Input Mapel Lain (Manual)...</option>
+                </select>
+              </div>
             )}
           </div>
 
