@@ -154,3 +154,34 @@ export interface KBMAssignment {
   checkedDate?: string;
   notes?: string;
 }
+
+export type KBMAttendanceStatus = 'Hadir' | 'Izin' | 'Sakit' | 'Pulang Awal' | 'Bolos' | 'Alpa';
+
+export interface KBMStudentAttendance {
+  nisn: string;
+  studentName: string;
+  gender?: 'L' | 'P';
+  status: KBMAttendanceStatus;
+  notes?: string;
+  timePulangAwal?: string;
+}
+
+export interface KBMJournalEntry {
+  id: string;
+  date: string; // YYYY-MM-DD
+  sessionHour: string; // e.g. "Jam ke 1 - 2 (07:00 - 08:30)"
+  classId: string;
+  className: string;
+  subjectName: string;
+  teacherId?: string;
+  teacherName: string;
+  topic: string; // Materi / Pokok Bahasan
+  notes?: string; // Catatan Kendala / Catatan Kelas
+  studentAttendance: KBMStudentAttendance[];
+  assignmentGiven?: {
+    title: string;
+    description?: string;
+    dueDate?: string;
+  };
+  createdAt?: string;
+}

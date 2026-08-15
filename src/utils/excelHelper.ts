@@ -224,3 +224,156 @@ export const parseExcelFile = (file: File): Promise<any[]> => {
     reader.readAsArrayBuffer(file);
   });
 };
+
+export const exportKBMRecapToExcel = (params: {
+  subjectName: string;
+  className: string;
+  teacherName: string;
+  monthName: string;
+  year: string;
+  kbmDates: string[]; // List of YYYY-MM-DD when KBM took place
+  studentRows: Array<{
+    no: number;
+    nisn: string;
+    studentName: string;
+    gender: string;
+    sessionStatuses: Record<string, string>; // date -> 'Hadir' | 'Izin' | 'Sakit' | 'Pulang Awal' | 'Bolos' | 'Alpa' | '-'
+    countH: number;
+    countI: number;
+    countS: number;
+    countP: number;
+    countB: number;
+    countA: number;
+    percentage: number;
+  }>;
+  journalEntries?: Array<{
+    date: string;
+    sessionHour: string;
+    topic: string;
+    notes?: string;
+    assignmentTitle?: string;
+  }>;
+}) => {
+  const { subjectName, className, teacherName, monthName, year, kbmDates, studentRows, journalEntries = [] } = params;
+
+  const workbook = XLSX.utils.book_new();
+
+  // === SHEET 1: REKAP PRESENSI KBM PER MAPEL ===
+  const title1 = `REKAPITULASI KEGIATAN BELAJAR MENGAJAR (KBM) & PRESENSI MATA PELAJARAN`;
+  const schoolName = `SMA ISLAM RA'IYATUL HUSNAN WRINGIN BONDOWOSO`;
+  const metaRow1 = `Mata Pelajaran: ${subjectName} | Kelas: ${className}`;
+  const metaRow2 = `Guru Pengampu: ${teacherName} | Periode: ${monthName} ${year} | Total Pertemuan: ${kbmDates.length} Kali`;
+
+  const dateHeaders = kbmDates.map((d, idx) => `P${idx + 1} (${d.slice(8, 10)}/${d.slice(5, 7)})`);
+
+  const headerRow = [
+    'No',
+    'NISN',
+    'Nama Siswa',
+    'L/P',
+    ...dateHeaders,
+    'H (Hadir)',
+    'I (Izin)',
+    'S (Sakit)',
+    'P (Pulang Awal)',
+    'B (Bolos)',
+    'A (Alpa)',
+    '% Keaktifan KBM'
+  ];
+
+  const sheet1Rows: any[][] = [
+    [schoolName],
+    [title1],
+    [metaRow1],
+    [metaRow2],
+    [], // Blank separator
+    headerRow
+  ];
+
+  studentRows.forEach((row) => {
+    const dateCodes = kbmDates.map((dateStr) => {
+      const st = row.sessionStatuses[dateStr];
+      if (!st || st === '-') return '-';
+      if (st === 'Hadir') return 'H';
+      if (st === 'Izin') return 'I';
+      if (st === 'Sakit') return 'S';
+      if (st === 'Pulang Awal') return 'P';
+      if (st === 'Bolos') return 'B';
+      if (st === 'Alpa') return 'A';
+      return st;
+    });
+
+    sheet1Rows.push([
+      row.no,
+      row.nisn,
+      row.studentName,
+      row.gender,
+      ...dateCodes,
+      row.countH,
+      row.countI,
+      row.countS,
+      row.countP,
+      row.countB,
+      row.countA,
+      `${row.percentage}%`
+    ]);
+  });
+
+  // Footer note
+  sheet1Rows.push([]);
+  sheet1Rows.push(['Keterangan Kode: H = Hadir, I = Izin, S = Sakit, P = Pulang Sebelum Waktunya, B = Bolos Jam KBM, A = Alpa']);
+  sheet1Rows.push([`Dicetak pada: ${new Date().toLocaleDateString('id-ID', { dateStyle: 'full' })}`]);
+
+  const worksheet1 = XLSX.utils.aoa_to_sheet(sheet1Rows);
+
+  const colWidths1: Array<{ wch: number }> = [
+    { wch: 6 },  // No
+    { wch: 16 }, // NISN
+    { wch: 28 }, // Nama
+    { wch: 6 },  // L/P
+  ];
+  kbmDates.forEach(() => colWidths1.push({ wch: 12 }));
+  colWidths1.push({ wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 16 });
+
+  worksheet1['!cols'] = colWidths1;
+  XLSX.utils.book_append_sheet(workbook, worksheet1, 'Presensi KBM Mapel');
+
+  // === SHEET 2: AGENDA JURNAL MATERI & TUGAS KBM ===
+  if (journalEntries.length > 0) {
+    const sheet2Rows: any[][] = [
+      [schoolName],
+      [`AGENDA JURNAL MENGAJAR & POKOK BAHASAN KBM - ${subjectName.toUpperCase()}`],
+      [`Kelas: ${className} | Guru: ${teacherName} | Periode: ${monthName} ${year}`],
+      [],
+      ['No', 'Tanggal KBM', 'Jam / Sesi', 'Materi / Pokok Bahasan', 'Catatan Kendala / Guru', 'Tugas Diberikan']
+    ];
+
+    journalEntries.forEach((jrn, idx) => {
+      sheet2Rows.push([
+        idx + 1,
+        jrn.date,
+        jrn.sessionHour || '-',
+        jrn.topic || '-',
+        jrn.notes || '-',
+        jrn.assignmentTitle || '-'
+      ]);
+    });
+
+    const worksheet2 = XLSX.utils.aoa_to_sheet(sheet2Rows);
+    worksheet2['!cols'] = [
+      { wch: 6 },  // No
+      { wch: 14 }, // Tanggal
+      { wch: 22 }, // Sesi
+      { wch: 38 }, // Materi
+      { wch: 32 }, // Catatan
+      { wch: 30 }  // Tugas
+    ];
+    XLSX.utils.book_append_sheet(workbook, worksheet2, 'Jurnal Mengajar');
+  }
+
+  const cleanSubject = subjectName.replace(/\s+/g, '_');
+  const cleanClass = className.replace(/\s+/g, '_');
+  const fileName = `Rekap_KBM_${cleanSubject}_${cleanClass}_${monthName}_${year}.xlsx`;
+
+  XLSX.writeFile(workbook, fileName);
+};

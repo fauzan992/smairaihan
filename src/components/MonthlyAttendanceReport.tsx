@@ -178,11 +178,12 @@ export const MonthlyAttendanceReport: React.FC<MonthlyAttendanceReportProps> = (
       {/* Title Header above table */}
       <div className="bg-emerald-900 text-white p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="space-y-1 text-center sm:text-left">
-          <h2 className="text-sm sm:text-base font-black tracking-wide uppercase text-amber-300">
-            REKAPITULASI KEHADIRAN SISWA KELAS {selectedClassName.toUpperCase()} BULAN {monthName.toUpperCase()} TAHUN {selectedYear}
+          <h2 className="text-sm sm:text-base font-black tracking-wide uppercase text-amber-300 flex items-center gap-2 justify-center sm:justify-start">
+            <Calendar className="w-5 h-5 text-emerald-300" />
+            REKAPITULASI KEHADIRAN SISWA KELAS {selectedClassName.toUpperCase()} — {monthName.toUpperCase()} {selectedYear}
           </h2>
           <p className="text-xs text-emerald-100 font-medium">
-            SMA Islam Raiyatul Husnan • Total Siswa: <span className="font-bold text-white">{monthlyData.length}</span>
+            SMA Islam Ra'iyatul Husnan • Total Siswa: <span className="font-bold text-white">{filteredStudents.length}</span>
           </p>
         </div>
 

@@ -1,5 +1,5 @@
-import { User, Student, Teacher, ClassRoom, AttendanceRecord, AttendanceStatus, UserRole, SchoolSettings, BKNote } from '../types';
-import { INITIAL_CLASSES, INITIAL_TEACHERS, INITIAL_STUDENTS, generateInitialAttendance, INITIAL_BK_NOTES } from '../data/mockDatabase';
+import { User, Student, Teacher, ClassRoom, AttendanceRecord, AttendanceStatus, UserRole, SchoolSettings, BKNote, KBMJournalEntry } from '../types';
+import { INITIAL_CLASSES, INITIAL_TEACHERS, INITIAL_STUDENTS, generateInitialAttendance, INITIAL_BK_NOTES, generateInitialKBMJournals } from '../data/mockDatabase';
 import { getStoredSupabaseConfig, pushAllFromBrowser, pullAllFromBrowser, getBrowserSupabaseClient, deleteTeacherFromBrowserSupabase, deleteClassFromBrowserSupabase, deleteStudentFromBrowserSupabase, upsertTeacherToBrowserSupabase, upsertSettingsToBrowserSupabase } from './clientSupabase';
 import { syncClassesAndStudentsData } from '../utils/dataSync';
 
@@ -138,6 +138,25 @@ function getLocalBKNotes(): BKNote[] {
 
 function saveLocalBKNotes(data: BKNote[]) {
   localStorage.setItem('app_bk_notes', JSON.stringify(data));
+}
+
+function getLocalKBMJournals(): KBMJournalEntry[] {
+  const raw = localStorage.getItem('app_kbm_journals');
+  if (!raw) {
+    const initial = generateInitialKBMJournals();
+    localStorage.setItem('app_kbm_journals', JSON.stringify(initial));
+    return initial;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalKBMJournals(data: KBMJournalEntry[]) {
+  localStorage.setItem('app_kbm_journals', JSON.stringify(data));
 }
 
 export const INITIAL_MASTER_SUBJECTS = [
@@ -1179,5 +1198,59 @@ export const apiService = {
       return { success: true, counts: res.data.counts, message: res.data.message };
     }
     return { success: false, error: res.error || 'Gagal mengimpor data dari Google Sheets.' };
+  },
+
+  // KBM Journal & Teaching Report Services
+  async getKBMJournals(filters?: { classId?: string; subjectName?: string; month?: string; year?: string }): Promise<{ success: boolean; data: KBMJournalEntry[] }> {
+    let journals = getLocalKBMJournals();
+    if (filters) {
+      if (filters.classId && filters.classId !== 'all') {
+        journals = journals.filter(j => j.classId === filters.classId || j.className === filters.classId);
+      }
+      if (filters.subjectName && filters.subjectName !== 'all') {
+        journals = journals.filter(j => j.subjectName.toLowerCase() === filters.subjectName!.toLowerCase());
+      }
+      if (filters.month && filters.year) {
+        const monthPad = filters.month.padStart(2, '0');
+        const prefix = `${filters.year}-${monthPad}`;
+        journals = journals.filter(j => j.date.startsWith(prefix));
+      }
+    }
+    // Sort descending by date
+    journals.sort((a, b) => b.date.localeCompare(a.date));
+    return { success: true, data: journals };
+  },
+
+  async saveKBMJournal(entry: KBMJournalEntry): Promise<{ success: boolean; entry?: KBMJournalEntry; error?: string }> {
+    try {
+      const journals = getLocalKBMJournals();
+      const existingIdx = journals.findIndex(
+        j => (j.id && j.id === entry.id) || (j.date === entry.date && j.classId === entry.classId && j.subjectName === entry.subjectName)
+      );
+
+      const entryToSave: KBMJournalEntry = {
+        ...entry,
+        id: entry.id || `kbm-jrn-${Date.now()}`,
+        createdAt: entry.createdAt || new Date().toISOString()
+      };
+
+      if (existingIdx >= 0) {
+        journals[existingIdx] = entryToSave;
+      } else {
+        journals.unshift(entryToSave);
+      }
+
+      saveLocalKBMJournals(journals);
+      return { success: true, entry: entryToSave };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Gagal menyimpan Jurnal KBM' };
+    }
+  },
+
+  async deleteKBMJournal(id: string): Promise<{ success: boolean }> {
+    const journals = getLocalKBMJournals();
+    const filtered = journals.filter(j => j.id !== id);
+    saveLocalKBMJournals(filtered);
+    return { success: true };
   }
 };

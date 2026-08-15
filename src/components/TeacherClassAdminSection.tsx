@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { User, Student, Teacher, ClassRoom, AttendanceRecord, BKNote, AttendanceStatus, KBMAssignment } from '../types';
+import { User, Student, Teacher, ClassRoom, AttendanceRecord, BKNote, AttendanceStatus, KBMAssignment, KBMAttendanceStatus, KBMJournalEntry } from '../types';
 import { apiService } from '../services/apiService';
+import { MonthlyKBMReport } from './MonthlyKBMReport';
 import {
   BookOpen, Users, CheckCircle2, Clock, AlertTriangle, XCircle,
   DoorOpen, HeartHandshake, Save, FileSpreadsheet, Search, RefreshCw,
@@ -140,6 +141,7 @@ export const TeacherClassAdminSection: React.FC<TeacherClassAdminSectionProps> =
   const [kbmDate, setKbmDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [topicSubject, setTopicSubject] = useState<string>('');
   const [classNotes, setClassNotes] = useState<string>('');
+  const [kbmSubTab, setKbmSubTab] = useState<'input' | 'monthlyReport' | 'assignments'>('input');
 
   // Session Manager Modal State
   const [showSessionModal, setShowSessionModal] = useState<boolean>(false);
@@ -271,6 +273,20 @@ export const TeacherClassAdminSection: React.FC<TeacherClassAdminSectionProps> =
           ...a,
           status: 'COMPLETED' as const,
           checkedDate: kbmDate
+        };
+      }
+      return a;
+    });
+    saveAssignments(updated);
+  };
+
+  const handleUpdateAssignmentStatus = (asgId: string, status: KBMAssignment['status']) => {
+    const updated = assignmentsList.map(a => {
+      if (a.id === asgId) {
+        return {
+          ...a,
+          status,
+          checkedDate: status !== 'PENDING' ? kbmDate : undefined
         };
       }
       return a;
@@ -455,6 +471,39 @@ export const TeacherClassAdminSection: React.FC<TeacherClassAdminSectionProps> =
     setIsSaving(false);
 
     if (res.success) {
+      // Save structured KBM Journal entry
+      const kbmStudentList = classStudents.map(st => {
+        const item = rosterMap[st.nisn] || { status: 'Hadir', notes: '' };
+        return {
+          nisn: st.nisn,
+          studentName: st.name,
+          gender: st.gender || 'L',
+          status: item.status as KBMAttendanceStatus,
+          notes: item.notes,
+          timePulangAwal: item.timePulangAwal
+        };
+      });
+
+      await apiService.saveKBMJournal({
+        id: `kbm-jrn-${kbmDate}-${selectedClassId}-${subjectName.replace(/\s+/g, '_')}`,
+        date: kbmDate,
+        sessionHour: sessionHour,
+        classId: selectedClassId,
+        className: currentClassObj?.name || selectedClassId,
+        subjectName: subjectName.trim(),
+        teacherId: user.id,
+        teacherName: user.name,
+        topic: topicSubject.trim() || `Pembelajaran KBM ${subjectName}`,
+        notes: classNotes.trim(),
+        studentAttendance: kbmStudentList,
+        assignmentGiven: hasTodayAssignment && todayAssignmentTitle.trim() ? {
+          title: todayAssignmentTitle.trim(),
+          description: todayAssignmentDesc.trim(),
+          dueDate: todayAssignmentDueDate
+        } : undefined,
+        createdAt: new Date().toISOString()
+      });
+
       // Also save today's assignment if entered
       if (hasTodayAssignment && todayAssignmentTitle.trim()) {
         const newAsg: KBMAssignment = {
@@ -611,8 +660,51 @@ export const TeacherClassAdminSection: React.FC<TeacherClassAdminSectionProps> =
         </div>
       )}
 
-      {/* Class & KBM Subject Control Card */}
-      <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+      {/* Subtab Navigation for KBM Module */}
+      <div className="flex flex-wrap items-center gap-2 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-xs">
+        <button
+          type="button"
+          onClick={() => setKbmSubTab('input')}
+          className={`px-4 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
+            kbmSubTab === 'input'
+              ? 'bg-emerald-800 text-white shadow-xs'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80 hover:text-slate-900'
+          }`}
+        >
+          <BookOpen className="w-4 h-4 text-amber-300" />
+          <span>Presensi & Jurnal KBM Hari Ini</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setKbmSubTab('monthlyReport')}
+          className={`px-4 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
+            kbmSubTab === 'monthlyReport'
+              ? 'bg-emerald-800 text-white shadow-xs'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80 hover:text-slate-900'
+          }`}
+        >
+          <FileSpreadsheet className="w-4 h-4 text-amber-300" />
+          <span>Rekap Bulanan KBM (Mapel & Kelas)</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setKbmSubTab('assignments')}
+          className={`px-4 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
+            kbmSubTab === 'assignments'
+              ? 'bg-emerald-800 text-white shadow-xs'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80 hover:text-slate-900'
+          }`}
+        >
+          <ListTodo className="w-4 h-4 text-amber-300" />
+          <span>Riwayat & Tugas KBM ({assignmentsList.length})</span>
+        </button>
+      </div>
+
+      {/* VIEW 1: PRESENSI & JURNAL KBM HARI INI */}
+      {kbmSubTab === 'input' && (
+        <div className="space-y-6">
+          {/* Class & KBM Subject Control Card */}
+          <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
             <Filter className="w-4 h-4 text-emerald-600" />
@@ -1353,6 +1445,117 @@ export const TeacherClassAdminSection: React.FC<TeacherClassAdminSectionProps> =
           </button>
         </div>
       </div>
+        </div>
+      )}
+
+      {/* VIEW 2: REKAP BULANAN KBM (MAPEL & KELAS) */}
+      {kbmSubTab === 'monthlyReport' && (
+        <MonthlyKBMReport
+          students={students}
+          classes={classes}
+          teachers={teachers}
+          attendanceRecords={attendanceRecords}
+          defaultClassId={selectedClassId}
+          defaultSubjectName={subjectName}
+          currentTeacherName={user.name}
+        />
+      )}
+
+      {/* VIEW 3: RIWAYAT & PENUGASAN KBM */}
+      {kbmSubTab === 'assignments' && (
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <div>
+              <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-widest bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                Manajemen Tugas & PR
+              </span>
+              <h3 className="text-lg font-black text-slate-900 mt-1">
+                Daftar Tugas KBM — Kelas {currentClassObj?.name || selectedClassId} ({subjectName})
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Pantau tagihan tugas siswa, batas waktu pengumpulan, dan ubah status tugas setelah dikoreksi.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setManualAssignmentForm({
+                  title: '',
+                  description: '',
+                  givenDate: new Date().toISOString().split('T')[0],
+                  dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+                  status: 'PENDING'
+                });
+                setShowNewAssignmentModal(true);
+              }}
+              className="px-4 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white font-extrabold text-xs rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4 text-amber-300" />
+              + Buat Tugas Baru
+            </button>
+          </div>
+
+          {assignmentsList.length === 0 ? (
+            <div className="p-12 text-center bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+              <ListTodo className="w-10 h-10 text-slate-300 mx-auto" />
+              <p className="text-sm font-bold text-slate-700">Belum ada tugas yang tersimpan</p>
+              <p className="text-xs text-slate-400">Buat tugas saat mengisi jurnal KBM atau klik tombol "+ Buat Tugas Baru" di atas.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {assignmentsList.map((asg) => (
+                <div key={asg.id} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 hover:border-emerald-300 transition-all">
+                  <div className="flex justify-between items-start gap-2">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 mr-2">
+                        {asg.className || selectedClassId} • {asg.subjectName || subjectName}
+                      </span>
+                      <h4 className="font-black text-slate-900 text-sm mt-1">{asg.title}</h4>
+                    </div>
+                    <select
+                      value={asg.status}
+                      onChange={(e) => handleUpdateAssignmentStatus(asg.id, e.target.value as any)}
+                      className={`text-[10px] font-black px-2.5 py-1 rounded-full border cursor-pointer ${
+                        asg.status === 'PENDING'
+                          ? 'bg-amber-100 text-amber-900 border-amber-300'
+                          : asg.status === 'CHECKED_TODAY'
+                          ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                          : 'bg-slate-200 text-slate-700 border-slate-300'
+                      }`}
+                    >
+                      <option value="PENDING">⏳ Belum Dikoreksi (PENDING)</option>
+                      <option value="CHECKED_TODAY">✅ Sudah Dikoreksi Hari Ini</option>
+                      <option value="COMPLETED">✔️ Selesai & Ditutup</option>
+                    </select>
+                  </div>
+
+                  {asg.description && (
+                    <p className="text-xs text-slate-600 bg-white p-3 rounded-xl border border-slate-200 leading-relaxed font-medium">
+                      {asg.description}
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-200/80">
+                    <div className="flex items-center gap-3">
+                      <span>Diberikan: <strong className="text-slate-700">{asg.givenDate}</strong></span>
+                      <span>Deadline: <strong className="text-rose-700">{asg.dueDate}</strong></span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteAssignment(asg.id)}
+                      className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
+                      title="Hapus Tugas"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* MODAL REFERRAL TO GURU BK */}
       {showBkModal && bkReferralStudent && (

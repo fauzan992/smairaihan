@@ -1,4 +1,4 @@
-import { Student, Teacher, ClassRoom, AttendanceRecord, AttendanceStatus, BKNote } from '../types';
+import { Student, Teacher, ClassRoom, AttendanceRecord, AttendanceStatus, BKNote, KBMJournalEntry } from '../types';
 
 export const INITIAL_CLASSES: ClassRoom[] = [
   { id: 'cls-1', name: 'X MIPA 1', gradeLevel: 'X', teacherId: 'tch-1', teacherName: 'Ust. Ahmad Fausan, S.Pd', studentCount: 5 },
@@ -134,4 +134,156 @@ export function generateInitialAttendance(): AttendanceRecord[] {
   }
 
   return records;
+}
+
+export function generateInitialKBMJournals(): KBMJournalEntry[] {
+  return [
+    {
+      id: 'kbm-jrn-1',
+      date: '2026-08-03',
+      sessionHour: 'Jam ke 1 - 2 (07:00 - 08:30)',
+      classId: 'cls-1',
+      className: 'X MIPA 1',
+      subjectName: 'Matematika',
+      teacherId: 'tch-1',
+      teacherName: 'Ust. Ahmad Fausan, S.Pd',
+      topic: 'Bab 1: Persamaan dan Pertidaksamaan Nilai Mutlak Linear Satu Variabel',
+      notes: 'Siswa aktif bertanya mengenai sifat-sifat nilai mutlak. Pembelajaran berlangsung kondusif.',
+      studentAttendance: [
+        { nisn: '0061234501', studentName: 'Muhammad Farhan', gender: 'L', status: 'Hadir' },
+        { nisn: '0061234502', studentName: 'Aisyah Az-Zahra', gender: 'P', status: 'Hadir' },
+        { nisn: '0061234503', studentName: 'Ahmad Zaki Mubarak', gender: 'L', status: 'Hadir' },
+        { nisn: '0061234504', studentName: 'Nur Fatimah Syahira', gender: 'P', status: 'Hadir' },
+        { nisn: '0061234505', studentName: 'Bilal Ramadhan', gender: 'L', status: 'Hadir' },
+      ],
+      assignmentGiven: {
+        title: 'Latihan Soal Nilai Mutlak Buku Paket Hal 24 No. 1 - 5',
+        description: 'Dikerjakan di buku latihan matematika dan dikumpulkan pertemuan berikutnya.',
+        dueDate: '2026-08-10'
+      },
+      createdAt: '2026-08-03T08:35:00.000Z'
+    },
+    {
+      id: 'kbm-jrn-2',
+      date: '2026-08-10',
+      sessionHour: 'Jam ke 1 - 2 (07:00 - 08:30)',
+      classId: 'cls-1',
+      className: 'X MIPA 1',
+      subjectName: 'Matematika',
+      teacherId: 'tch-1',
+      teacherName: 'Ust. Ahmad Fausan, S.Pd',
+      topic: 'Bab 1: Penyelesaian Grafik Persamaan Nilai Mutlak & Penagihan Tugas',
+      notes: 'Penagihan tugas pertemuan lalu. 1 siswa izin sakit (surat dokter terlampir).',
+      studentAttendance: [
+        { nisn: '0061234501', studentName: 'Muhammad Farhan', gender: 'L', status: 'Hadir' },
+        { nisn: '0061234502', studentName: 'Aisyah Az-Zahra', gender: 'P', status: 'Hadir' },
+        { nisn: '0061234503', studentName: 'Ahmad Zaki Mubarak', gender: 'L', status: 'Hadir' },
+        { nisn: '0061234504', studentName: 'Nur Fatimah Syahira', gender: 'P', status: 'Sakit', notes: 'Surat dokter' },
+        { nisn: '0061234505', studentName: 'Bilal Ramadhan', gender: 'L', status: 'Hadir' },
+      ],
+      assignmentGiven: {
+        title: 'Tugas Mandiri Menggambar Grafik Fungsi Nilai Mutlak',
+        description: 'Gunakan kertas milimeter blok untuk grafik.',
+        dueDate: '2026-08-18'
+      },
+      createdAt: '2026-08-10T08:32:00.000Z'
+    },
+    {
+      id: 'kbm-jrn-3',
+      date: '2026-08-18',
+      sessionHour: 'Jam ke 1 - 2 (07:00 - 08:30)',
+      classId: 'cls-1',
+      className: 'X MIPA 1',
+      subjectName: 'Matematika',
+      teacherId: 'tch-1',
+      teacherName: 'Ust. Ahmad Fausan, S.Pd',
+      topic: 'Bab 2: Sistem Persamaan Linear Tiga Variabel (SPLTV) - Metode Eliminasi',
+      notes: 'Diskusi kelompok metode eliminasi. 1 siswa izin pulang awal karena demam saat jam ke-2.',
+      studentAttendance: [
+        { nisn: '0061234501', studentName: 'Muhammad Farhan', gender: 'L', status: 'Hadir' },
+        { nisn: '0061234502', studentName: 'Aisyah Az-Zahra', gender: 'P', status: 'Hadir' },
+        { nisn: '0061234503', studentName: 'Ahmad Zaki Mubarak', gender: 'L', status: 'Pulang Awal', timePulangAwal: '08:15', notes: 'Demam mendadak, dijemput orang tua ke UKS' },
+        { nisn: '0061234504', studentName: 'Nur Fatimah Syahira', gender: 'P', status: 'Hadir' },
+        { nisn: '0061234505', studentName: 'Bilal Ramadhan', gender: 'L', status: 'Hadir' },
+      ],
+      createdAt: '2026-08-18T08:30:00.000Z'
+    },
+    {
+      id: 'kbm-jrn-4',
+      date: '2026-08-24',
+      sessionHour: 'Jam ke 1 - 2 (07:00 - 08:30)',
+      classId: 'cls-1',
+      className: 'X MIPA 1',
+      subjectName: 'Matematika',
+      teacherId: 'tch-1',
+      teacherName: 'Ust. Ahmad Fausan, S.Pd',
+      topic: 'Bab 2: SPLTV Metode Substitusi & Campuran, Pemecahan Masalah Kontekstual',
+      notes: 'Latihan soal cerita penerapan SPLTV dalam kehidupan sehari-hari.',
+      studentAttendance: [
+        { nisn: '0061234501', studentName: 'Muhammad Farhan', gender: 'L', status: 'Hadir' },
+        { nisn: '0061234502', studentName: 'Aisyah Az-Zahra', gender: 'P', status: 'Hadir' },
+        { nisn: '0061234503', studentName: 'Ahmad Zaki Mubarak', gender: 'L', status: 'Hadir' },
+        { nisn: '0061234504', studentName: 'Nur Fatimah Syahira', gender: 'P', status: 'Hadir' },
+        { nisn: '0061234505', studentName: 'Bilal Ramadhan', gender: 'L', status: 'Izin', notes: 'Izin lomba tahfidz' },
+      ],
+      createdAt: '2026-08-24T08:30:00.000Z'
+    },
+    {
+      id: 'kbm-jrn-5',
+      date: '2026-08-04',
+      sessionHour: 'Jam ke 3 - 4 (08:45 - 10:15)',
+      classId: 'cls-3',
+      className: 'XI MIPA 1',
+      subjectName: 'Fisika',
+      teacherId: 'tch-2',
+      teacherName: 'Ustadzah Siti Nurhaliza, M.Pd',
+      topic: 'Bab 1: Dinamika Rotasi dan Keseimbangan Benda Tegar',
+      notes: 'Praktikum momen inersia sederhana di laboratorium fisika.',
+      studentAttendance: [
+        { nisn: '0061234510', studentName: 'Zahra Humaira', gender: 'P', status: 'Hadir' },
+        { nisn: '0061234511', studentName: 'Omar Al-Mukhtar', gender: 'L', status: 'Hadir' },
+        { nisn: '0061234512', studentName: 'Salma Salsabila', gender: 'P', status: 'Hadir' },
+        { nisn: '0061234513', studentName: 'Rayhan Putra', gender: 'L', status: 'Hadir' },
+      ],
+      createdAt: '2026-08-04T10:15:00.000Z'
+    },
+    {
+      id: 'kbm-jrn-6',
+      date: '2026-08-11',
+      sessionHour: 'Jam ke 3 - 4 (08:45 - 10:15)',
+      classId: 'cls-3',
+      className: 'XI MIPA 1',
+      subjectName: 'Fisika',
+      teacherId: 'tch-2',
+      teacherName: 'Ustadzah Siti Nurhaliza, M.Pd',
+      topic: 'Bab 1: Hukum Kekekalan Momentum Sudut & Titik Berat Benda',
+      notes: 'Latihan soal titik berat benda 2 dimensi dan 3 dimensi.',
+      studentAttendance: [
+        { nisn: '0061234510', studentName: 'Zahra Humaira', gender: 'P', status: 'Hadir' },
+        { nisn: '0061234511', studentName: 'Omar Al-Mukhtar', gender: 'L', status: 'Hadir' },
+        { nisn: '0061234512', studentName: 'Salma Salsabila', gender: 'P', status: 'Hadir' },
+        { nisn: '0061234513', studentName: 'Rayhan Putra', gender: 'L', status: 'Bolos', notes: 'Keluar saat praktikum tanpa izin guru' },
+      ],
+      createdAt: '2026-08-11T10:15:00.000Z'
+    },
+    {
+      id: 'kbm-jrn-7',
+      date: '2026-08-05',
+      sessionHour: 'Jam ke 5 - 6 (10:30 - 12:00)',
+      classId: 'cls-2',
+      className: 'X MIPA 2',
+      subjectName: 'Biologi',
+      teacherId: 'tch-4',
+      teacherName: 'Ustadzah Nurul Hidayah, S.Si',
+      topic: 'Bab 1: Ruang Lingkup Biologi dan Metode Ilmiah',
+      notes: 'Pengenalan alat laboratorium mikroskop dan keselamatan kerja.',
+      studentAttendance: [
+        { nisn: '0061234506', studentName: 'Dewi Rahmawati', gender: 'P', status: 'Hadir' },
+        { nisn: '0061234507', studentName: 'Fikri Haikal', gender: 'L', status: 'Hadir' },
+        { nisn: '0061234508', studentName: 'Khadijah Nabilah', gender: 'P', status: 'Hadir' },
+        { nisn: '0061234509', studentName: 'Rizky Al-Fatih', gender: 'L', status: 'Alpa', notes: 'Tanpa keterangan' },
+      ],
+      createdAt: '2026-08-05T12:00:00.000Z'
+    }
+  ];
 }

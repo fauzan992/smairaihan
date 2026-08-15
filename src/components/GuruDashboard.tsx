@@ -6,6 +6,7 @@ import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { NISNBarcode } from './NISNBarcode';
 import { DismissalAttendanceSection } from './DismissalAttendanceSection';
 import { MonthlyAttendanceReport } from './MonthlyAttendanceReport';
+import { MonthlyKBMReport } from './MonthlyKBMReport';
 import { MainDashboardOverview } from './MainDashboardOverview';
 import { TeacherClassAdminSection } from './TeacherClassAdminSection';
 import { TeacherProfileModal } from './TeacherProfileModal';
@@ -43,7 +44,8 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
   const [activeTab, setActiveTab] = useState<'dashboard' | 'scan' | 'checkout' | 'today' | 'reports' | 'teacherAdmin'>(
     externalActiveTab === 'teacherAdmin' ? 'teacherAdmin' : ((externalActiveTab as any) || 'dashboard')
   );
-  const [reportsSubTab, setReportsSubTab] = useState<'daily' | 'monthly'>('daily');
+  const [reportsSubTab, setReportsSubTab] = useState<'daily' | 'monthly' | 'kbm'>('daily');
+  const [reportSubjectFilter, setReportSubjectFilter] = useState('all');
   const [showScannerModal, setShowScannerModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [selectedStudentBarcode, setSelectedStudentBarcode] = useState<Student | null>(null);
@@ -99,10 +101,12 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
   const [reportStatusFilter, setReportStatusFilter] = useState('all');
 
   const classHistoryRecords = attendanceRecords.filter(rec => {
-    const matchClass = rec.classId === teacherClassId;
+    const matchClass = rec.classId === teacherClassId ||
+                       (currentClass && rec.className && rec.className.trim().toLowerCase() === currentClass.name.trim().toLowerCase());
     const matchStatus = reportStatusFilter === 'all' || rec.status === reportStatusFilter;
     const matchStart = !reportStartDate || rec.date >= reportStartDate;
     const matchEnd = !reportEndDate || rec.date <= reportEndDate;
+
     return matchClass && matchStatus && matchStart && matchEnd;
   });
 
@@ -519,7 +523,7 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
           {activeTab === 'reports' && (
             <div className="space-y-5">
               {/* Subtabs Navigation for Rekapitulasi Laporan */}
-              <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+              <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3">
                 <button
                   onClick={() => setReportsSubTab('daily')}
                   className={`px-4 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
@@ -541,6 +545,17 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
                 >
                   <Clock className="w-4 h-4 text-amber-300" />
                   <span>Rekapitulasi Bulanan</span>
+                </button>
+                <button
+                  onClick={() => setReportsSubTab('kbm')}
+                  className={`px-4 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
+                    reportsSubTab === 'kbm'
+                      ? 'bg-emerald-800 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80 hover:text-slate-900'
+                  }`}
+                >
+                  <BookOpen className="w-4 h-4 text-amber-300" />
+                  <span>Rekap Bulanan KBM (Mapel & Kelas)</span>
                 </button>
               </div>
 
@@ -645,6 +660,19 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
                   students={students}
                   classes={classes}
                   attendanceRecords={attendanceRecords}
+                />
+              )}
+
+              {/* Subtab 3: REKAPITULASI BULANAN KBM (MAPEL & KELAS) */}
+              {reportsSubTab === 'kbm' && (
+                <MonthlyKBMReport
+                  students={students}
+                  classes={classes}
+                  teachers={teachers}
+                  attendanceRecords={attendanceRecords}
+                  defaultClassId={teacherClassId}
+                  defaultSubjectName={user.subject}
+                  currentTeacherName={user.name}
                 />
               )}
             </div>
