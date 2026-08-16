@@ -101,6 +101,12 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
   const [reportStatusFilter, setReportStatusFilter] = useState('all');
 
   const classHistoryRecords = attendanceRecords.filter(rec => {
+    // Validasi siswa terdaftar di Master Data Siswa
+    const isMasterStudent = students.some(
+      s => s.id === rec.studentId || s.nisn === rec.nisn || (s.name && rec.studentName && s.name.trim().toLowerCase() === rec.studentName.trim().toLowerCase())
+    );
+    if (!isMasterStudent) return false;
+
     const matchClass = rec.classId === teacherClassId ||
                        (currentClass && rec.className && rec.className.trim().toLowerCase() === currentClass.name.trim().toLowerCase());
     const matchStatus = reportStatusFilter === 'all' || rec.status === reportStatusFilter;
@@ -164,11 +170,20 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
           onNavigateTab={(tab, sub) => {
             if (tab === 'master') {
               setActiveTab('today');
-            } else if (tab === 'scan' || tab === 'reports') {
+            } else if (tab === 'scan' || tab === 'reports' || tab === 'teacherAdmin') {
               setActiveTab(tab as any);
             }
             if (onTabChange) onTabChange(tab, sub);
           }}
+        />
+      ) : activeTab === 'teacherAdmin' ? (
+        <TeacherClassAdminSection
+          user={user}
+          students={students}
+          teachers={teachers}
+          classes={classes}
+          attendanceRecords={attendanceRecords}
+          onRefreshData={onRefreshData}
         />
       ) : (
         <>
@@ -676,18 +691,6 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
                 />
               )}
             </div>
-          )}
-
-          {/* TAB ADMINISTRASI KELAS & KBM */}
-          {activeTab === 'teacherAdmin' && (
-            <TeacherClassAdminSection
-              user={user}
-              students={students}
-              teachers={teachers}
-              classes={classes}
-              attendanceRecords={attendanceRecords}
-              onRefreshData={onRefreshData}
-            />
           )}
         </div>
       </div>

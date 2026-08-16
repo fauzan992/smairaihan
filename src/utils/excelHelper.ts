@@ -17,7 +17,8 @@ export const exportMonthlyRecapToExcel = (
   totalDays: number,
   monthName: string,
   year: string,
-  classNameFilter: string = 'Semua_Kelas'
+  classNameFilter: string = 'Semua_Kelas',
+  holidaysMap?: Record<number, { isHoliday: boolean; name: string }>
 ) => {
   // Title row matching application layout
   const titleText = `REKAPITULASI KEHADIRAN SISWA KELAS ${classNameFilter.toUpperCase()} BULAN ${monthName.toUpperCase()} TAHUN ${year}`;
@@ -26,7 +27,12 @@ export const exportMonthlyRecapToExcel = (
   // Construct day column headers (1..N)
   const dayHeaders: string[] = [];
   for (let d = 1; d <= totalDays; d++) {
-    dayHeaders.push(String(d));
+    const hol = holidaysMap?.[d];
+    if (hol?.isHoliday) {
+      dayHeaders.push(`${d} (L)`);
+    } else {
+      dayHeaders.push(String(d));
+    }
   }
 
   // Header row
@@ -54,11 +60,13 @@ export const exportMonthlyRecapToExcel = (
     const dayCodes: string[] = [];
     for (let d = 1; d <= totalDays; d++) {
       const st = row.dayStatuses[d];
+      const hol = holidaysMap?.[d];
       let code = '-';
       if (st === 'Hadir') code = 'H';
       else if (st === 'Sakit') code = 'S';
       else if (st === 'Izin') code = 'I';
       else if (st === 'Alpa') code = 'A';
+      else if (hol?.isHoliday) code = 'L';
       dayCodes.push(code);
     }
 
@@ -74,6 +82,20 @@ export const exportMonthlyRecapToExcel = (
       `${row.percentage}%`
     ]);
   });
+
+  // Add holiday legends if any
+  if (holidaysMap) {
+    const holidayList = Object.entries(holidaysMap)
+      .filter(([_, val]) => val.isHoliday)
+      .map(([day, val]) => `Tgl ${day} ${monthName}: ${val.name}`);
+    if (holidayList.length > 0) {
+      rows.push([]);
+      rows.push(['Keterangan Hari Libur:']);
+      holidayList.forEach(item => {
+        rows.push([`• ${item}`]);
+      });
+    }
+  }
 
   const worksheet = XLSX.utils.aoa_to_sheet(rows);
 

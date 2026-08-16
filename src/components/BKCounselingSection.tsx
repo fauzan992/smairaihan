@@ -861,8 +861,12 @@ export const BKCounselingSection: React.FC<BKCounselingSectionProps> = ({
                   <p>Mengetahui,</p>
                   <p className="font-bold">Kepala {schoolSettings?.namaSekolah || "SMA Islam Ra'iyatul Husnan"}</p>
                   <div className="h-14"></div>
-                  <p className="font-bold underline">{schoolSettings?.namaKepalaSekolah || "Ust. Ahmad Fausan, S.Pd"}</p>
-                  <p className="text-[10px]">NIP. {schoolSettings?.nipKepalaSekolah || "198504122010011002"}</p>
+                  <p className="font-bold underline">{schoolSettings?.namaKepalaSekolah || "SAIFURRAHMAN, SH"}</p>
+                  {schoolSettings?.nipKepalaSekolah && schoolSettings.nipKepalaSekolah.trim() ? (
+                    <p className="text-[10px]">NIP. {schoolSettings.nipKepalaSekolah}</p>
+                  ) : (
+                    <p className="text-[10px]">&nbsp;</p>
+                  )}
                 </div>
 
                 <div>

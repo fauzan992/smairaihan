@@ -66,7 +66,7 @@ export const TeacherProfileModal: React.FC<TeacherProfileModalProps> = ({
       const payload: Partial<Teacher> = {
         name: trimmedName,
         username: trimmedUsername,
-        nip: user.nip || currentTeacher?.nip || '198504122010011002',
+        nip: user.nip || currentTeacher?.nip || '',
         role: (user.role as any) || currentTeacher?.role || 'guru'
       };
 

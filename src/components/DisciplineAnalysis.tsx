@@ -38,11 +38,18 @@ export const DisciplineAnalysis: React.FC<DisciplineAnalysisProps> = ({
     { value: '12', label: 'Desember' }
   ];
 
-  // Filter records by selected Month and Year (YYYY-MM)
+  // Filter records by selected Month and Year (YYYY-MM) and validate against Master Data Siswa
   const filteredRecords = useMemo(() => {
+    const validNisns = new Set(students.map(s => s.nisn));
+    const validIds = new Set(students.map(s => s.id));
+    const validNames = new Set(students.map(s => (s.name || '').trim().toLowerCase()));
     const targetPrefix = `${selectedYear}-${selectedMonth}`;
-    return attendanceRecords.filter(r => r.date.startsWith(targetPrefix));
-  }, [attendanceRecords, selectedMonth, selectedYear]);
+
+    return attendanceRecords.filter(r =>
+      r.date.startsWith(targetPrefix) &&
+      (validNisns.has(r.nisn) || validIds.has(r.studentId) || (r.studentName && validNames.has(r.studentName.trim().toLowerCase())))
+    );
+  }, [attendanceRecords, students, selectedMonth, selectedYear]);
 
   // Compute detailed discipline analytics per class
   const classDisciplineData = useMemo(() => {

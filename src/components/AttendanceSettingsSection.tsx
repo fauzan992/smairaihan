@@ -34,8 +34,8 @@ export const AttendanceSettingsSection: React.FC<AttendanceSettingsSectionProps>
     email: "smaislam.raiyatulhusnan@gmail.sch.id",
     website: "www.smaislam-raiyatulhusnan.sch.id",
     logoUrl: "/school-logo.png",
-    namaKepalaSekolah: "Ust. Ahmad Fausan, S.Pd",
-    nipKepalaSekolah: "198504122010011002",
+    namaKepalaSekolah: "SAIFURRAHMAN, SH",
+    nipKepalaSekolah: "",
     naunganYayasan: "Yayasan Ra'iyatul Husnan Wringin",
 
     jamMasuk: '07:00',
@@ -545,7 +545,7 @@ export const AttendanceSettingsSection: React.FC<AttendanceSettingsSectionProps>
                   type="text"
                   value={settings.namaKepalaSekolah || ''}
                   onChange={(e) => setSettings({ ...settings, namaKepalaSekolah: e.target.value })}
-                  placeholder="Ust. Ahmad Fausan, S.Pd"
+                  placeholder="SAIFURRAHMAN, SH"
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold text-slate-900"
                 />
               </div>
@@ -556,7 +556,7 @@ export const AttendanceSettingsSection: React.FC<AttendanceSettingsSectionProps>
                   type="text"
                   value={settings.nipKepalaSekolah || ''}
                   onChange={(e) => setSettings({ ...settings, nipKepalaSekolah: e.target.value })}
-                  placeholder="198504122010011002"
+                  placeholder="Dikosongkan jika tidak ada NIP"
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono font-bold text-slate-800"
                 />
               </div>

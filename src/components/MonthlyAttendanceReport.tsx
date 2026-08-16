@@ -1,20 +1,23 @@
-import React, { useState, useMemo } from 'react';
-import { Student, ClassRoom, AttendanceRecord } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Student, ClassRoom, AttendanceRecord, SchoolSettings } from '../types';
 import { exportMonthlyRecapToExcel } from '../utils/excelHelper';
+import { apiService } from '../services/apiService';
 import {
-  Calendar, Download, School
+  Calendar, Download, School, Printer, Info, Sparkles
 } from 'lucide-react';
 
 interface MonthlyAttendanceReportProps {
   students: Student[];
   classes: ClassRoom[];
   attendanceRecords: AttendanceRecord[];
+  schoolSettings?: SchoolSettings;
 }
 
 export const MonthlyAttendanceReport: React.FC<MonthlyAttendanceReportProps> = ({
   students,
   classes,
-  attendanceRecords
+  attendanceRecords,
+  schoolSettings: initialSchoolSettings
 }) => {
   const currentDate = new Date();
   const defaultMonth = String(currentDate.getMonth() + 1).padStart(2, '0');
@@ -23,6 +26,33 @@ export const MonthlyAttendanceReport: React.FC<MonthlyAttendanceReportProps> = (
   const [selectedClassId, setSelectedClassId] = useState<string>('all');
   const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonth);
   const [selectedYear, setSelectedYear] = useState<string>(defaultYear);
+
+  const [settings, setSettings] = useState<SchoolSettings | null>(initialSchoolSettings || null);
+
+  useEffect(() => {
+    if (initialSchoolSettings) {
+      setSettings(initialSchoolSettings);
+    } else {
+      apiService.getSettings().then(res => {
+        if (res.success && res.settings) {
+          setSettings(res.settings);
+        }
+      });
+    }
+
+    const handleSettingsUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<SchoolSettings>;
+      if (customEvent.detail) {
+        setSettings(customEvent.detail);
+      }
+    };
+    window.addEventListener('school_settings_updated', handleSettingsUpdated);
+    window.addEventListener('school-settings-updated', handleSettingsUpdated);
+    return () => {
+      window.removeEventListener('school_settings_updated', handleSettingsUpdated);
+      window.removeEventListener('school-settings-updated', handleSettingsUpdated);
+    };
+  }, [initialSchoolSettings]);
 
   const monthsList = [
     { value: '01', label: 'Januari' },
@@ -47,6 +77,78 @@ export const MonthlyAttendanceReport: React.FC<MonthlyAttendanceReportProps> = (
     const m = parseInt(selectedMonth, 10) || (currentDate.getMonth() + 1);
     return new Date(y, m, 0).getDate();
   }, [selectedMonth, selectedYear]);
+
+  // Holiday map for every single day in the selected month
+  const dayHolidaysMap = useMemo(() => {
+    const map: Record<number, { isHoliday: boolean; name: string; isCustom: boolean; isRoutine: boolean; dayName: string; fullDayName: string }> = {};
+    const y = parseInt(selectedYear, 10) || currentDate.getFullYear();
+    const m = parseInt(selectedMonth, 10) || (currentDate.getMonth() + 1);
+
+    const routineHolidays = settings?.hariLiburRutin ?? [0]; // default: Sunday
+    const customHolidays = settings?.hariLiburKhusus ?? [];
+
+    const indonesianShortDays = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    const indonesianFullDays = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+    for (let day = 1; day <= totalDays; day++) {
+      const dayStr = String(day).padStart(2, '0');
+      const dateStr = `${selectedYear}-${selectedMonth}-${dayStr}`;
+      const dateObj = new Date(y, m - 1, day);
+      const dayOfWeek = dateObj.getDay();
+
+      const customMatch = customHolidays.find(h => h.date === dateStr);
+      const isRoutine = routineHolidays.includes(dayOfWeek);
+
+      if (customMatch) {
+        map[day] = {
+          isHoliday: true,
+          name: customMatch.name || 'Hari Libur Khusus Sistem',
+          isCustom: true,
+          isRoutine,
+          dayName: indonesianShortDays[dayOfWeek],
+          fullDayName: indonesianFullDays[dayOfWeek]
+        };
+      } else if (isRoutine) {
+        map[day] = {
+          isHoliday: true,
+          name: `Libur Rutin (${indonesianFullDays[dayOfWeek]})`,
+          isCustom: false,
+          isRoutine: true,
+          dayName: indonesianShortDays[dayOfWeek],
+          fullDayName: indonesianFullDays[dayOfWeek]
+        };
+      } else {
+        map[day] = {
+          isHoliday: false,
+          name: '',
+          isCustom: false,
+          isRoutine: false,
+          dayName: indonesianShortDays[dayOfWeek],
+          fullDayName: indonesianFullDays[dayOfWeek]
+        };
+      }
+    }
+    return map;
+  }, [totalDays, selectedYear, selectedMonth, settings]);
+
+  // List of all holidays in current selected month for the summary banner
+  const activeMonthHolidays = useMemo(() => {
+    const list: Array<{ day: number; dateStr: string; name: string; isCustom: boolean; dayName: string }> = [];
+    for (let day = 1; day <= totalDays; day++) {
+      const hol = dayHolidaysMap[day];
+      if (hol && hol.isHoliday) {
+        const dayStr = String(day).padStart(2, '0');
+        list.push({
+          day,
+          dateStr: `${dayStr}/${selectedMonth}/${selectedYear}`,
+          name: hol.name,
+          isCustom: hol.isCustom,
+          dayName: hol.fullDayName
+        });
+      }
+    }
+    return list;
+  }, [dayHolidaysMap, totalDays, selectedMonth, selectedYear]);
 
   // Filter students by class
   const filteredStudents = useMemo(() => {
@@ -120,7 +222,8 @@ export const MonthlyAttendanceReport: React.FC<MonthlyAttendanceReportProps> = (
       totalDays,
       monthName,
       selectedYear,
-      selectedClassName
+      selectedClassName,
+      dayHolidaysMap
     );
   };
 
@@ -187,36 +290,85 @@ export const MonthlyAttendanceReport: React.FC<MonthlyAttendanceReportProps> = (
           </p>
         </div>
 
-        <button
-          onClick={handleExportExcel}
-          className="flex items-center gap-2 py-2 px-4 bg-amber-400 hover:bg-amber-300 text-emerald-950 font-black rounded-xl text-xs shadow-md cursor-pointer transition-all active:scale-95 shrink-0"
-          title="Ekspor Rekapitulasi Bulanan ke Excel (.xlsx)"
-        >
-          <Download className="w-4 h-4" /> Ekspor Excel (.xlsx)
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-1.5 py-2 px-3.5 bg-emerald-800 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs border border-emerald-600 shadow-sm cursor-pointer transition-all active:scale-95 shrink-0"
+            title="Cetak Laporan Presensi"
+          >
+            <Printer className="w-4 h-4 text-amber-300" /> Cetak
+          </button>
+          <button
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 py-2 px-4 bg-amber-400 hover:bg-amber-300 text-emerald-950 font-black rounded-xl text-xs shadow-md cursor-pointer transition-all active:scale-95 shrink-0"
+            title="Ekspor Rekapitulasi Bulanan ke Excel (.xlsx)"
+          >
+            <Download className="w-4 h-4" /> Ekspor Excel (.xlsx)
+          </button>
+        </div>
       </div>
 
-      {/* Legend & Summary Info */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white border border-slate-200 rounded-xl text-xs">
-        <div className="flex items-center gap-3">
-          <span className="font-extrabold text-slate-700 text-xs">Keterangan Status:</span>
-          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md">
-            H = Hadir
-          </span>
-          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded-md">
-            S = Sakit
-          </span>
-          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md">
-            I = Izin
-          </span>
-          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-800 bg-rose-100 px-2 py-0.5 rounded-md">
-            A = Alpa
-          </span>
+      {/* Holiday Info Banner & Legend */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white border border-slate-200 rounded-xl text-xs">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <span className="font-extrabold text-slate-700 text-xs">Keterangan:</span>
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md">
+              H = Hadir
+            </span>
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded-md">
+              S = Sakit
+            </span>
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md">
+              I = Izin
+            </span>
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-800 bg-rose-100 px-2 py-0.5 rounded-md">
+              A = Alpa
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-rose-900 bg-rose-100/90 border border-rose-300 px-2.5 py-0.5 rounded-md shadow-2xs">
+              <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse"></span>
+              L = Hari Libur (Merah)
+            </span>
+          </div>
+
+          <div className="text-slate-600 font-bold text-[11px]">
+            Periode: <span className="text-emerald-800 font-extrabold">{monthName} {selectedYear}</span> ({selectedClassName})
+          </div>
         </div>
 
-        <div className="text-slate-600 font-bold text-[11px]">
-          Periode: <span className="text-emerald-800 font-extrabold">{monthName} {selectedYear}</span> ({selectedClassName})
-        </div>
+        {/* Highlighted List of Holidays in this selected Month */}
+        {activeMonthHolidays.length > 0 && (
+          <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-start sm:items-center gap-2">
+              <div className="p-1.5 bg-rose-100 text-rose-700 rounded-lg shrink-0">
+                <Info className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="font-extrabold text-rose-950 block sm:inline mr-2">
+                  Daftar Hari Libur Bulan {monthName} {selectedYear}:
+                </span>
+                <div className="inline-flex flex-wrap gap-1.5 mt-1 sm:mt-0">
+                  {activeMonthHolidays.map((h, i) => (
+                    <span
+                      key={i}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[11px] border ${
+                        h.isCustom
+                          ? 'bg-rose-200/90 text-rose-900 border-rose-300 font-black'
+                          : 'bg-white text-rose-800 border-rose-200'
+                      }`}
+                      title={h.name}
+                    >
+                      <span className="font-mono text-[10px] text-rose-950 font-black">Tgl {h.day}</span>: {h.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <span className="text-[10px] text-rose-700 font-bold sm:text-right shrink-0 bg-white/80 px-2 py-1 rounded-lg border border-rose-200">
+              Total {activeMonthHolidays.length} Hari Libur
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Monthly Attendance Table Matrix */}
@@ -228,11 +380,28 @@ export const MonthlyAttendanceReport: React.FC<MonthlyAttendanceReportProps> = (
               <th className="p-2.5 border-b border-slate-700 min-w-[170px] sticky left-10 bg-slate-800 z-10">Nama Siswa / NISN</th>
               
               {/* Day numbers 1 to totalDays */}
-              {Array.from({ length: totalDays }, (_, i) => i + 1).map(day => (
-                <th key={day} className="p-1 text-center border-b border-r border-slate-700/60 w-7 min-w-[28px] font-mono text-[10px]">
-                  {day}
-                </th>
-              ))}
+              {Array.from({ length: totalDays }, (_, i) => i + 1).map(day => {
+                const hol = dayHolidaysMap[day];
+                const isHoliday = hol?.isHoliday;
+                return (
+                  <th
+                    key={day}
+                    className={`p-1 text-center border-b border-r text-[10px] w-7 min-w-[28px] transition-colors ${
+                      isHoliday
+                        ? 'bg-rose-900/95 text-rose-100 border-rose-700 font-black'
+                        : 'border-slate-700/60 font-mono text-slate-200'
+                    }`}
+                    title={isHoliday ? `HARI LIBUR: ${hol.name} (${hol.dayName})` : `${hol?.dayName}, ${day} ${monthName}`}
+                  >
+                    <div className="flex flex-col items-center">
+                      <span className={isHoliday ? 'text-amber-300 font-black' : ''}>{day}</span>
+                      <span className={`text-[8px] font-sans ${isHoliday ? 'text-rose-300 font-extrabold' : 'text-slate-400'}`}>
+                        {hol?.dayName}
+                      </span>
+                    </div>
+                  </th>
+                );
+              })}
 
               <th className="p-2 text-center border-b border-slate-700 bg-emerald-950/80 text-emerald-300 w-10">H</th>
               <th className="p-2 text-center border-b border-slate-700 bg-blue-950/80 text-blue-300 w-10">S</th>
@@ -263,29 +432,46 @@ export const MonthlyAttendanceReport: React.FC<MonthlyAttendanceReportProps> = (
                   {/* Days 1..N Matrix Cells */}
                   {Array.from({ length: totalDays }, (_, i) => i + 1).map(day => {
                     const st = row.dayStatuses[day];
+                    const hol = dayHolidaysMap[day];
+                    const isHoliday = hol?.isHoliday;
+
                     return (
-                      <td key={day} className="p-0.5 text-center border-r border-slate-100">
+                      <td
+                        key={day}
+                        className={`p-0.5 text-center border-r border-slate-100 transition-colors ${
+                          isHoliday ? 'bg-rose-50/75' : ''
+                        }`}
+                        title={isHoliday ? `Hari Libur: ${hol.name}` : undefined}
+                      >
                         {st === 'Hadir' && (
-                          <span className="w-6 h-6 mx-auto rounded-md bg-emerald-100 text-emerald-900 font-black text-[10px] flex items-center justify-center">
+                          <span className="w-6 h-6 mx-auto rounded-md bg-emerald-100 text-emerald-900 font-black text-[10px] flex items-center justify-center shadow-2xs">
                             H
                           </span>
                         )}
                         {st === 'Sakit' && (
-                          <span className="w-6 h-6 mx-auto rounded-md bg-blue-100 text-blue-900 font-black text-[10px] flex items-center justify-center">
+                          <span className="w-6 h-6 mx-auto rounded-md bg-blue-100 text-blue-900 font-black text-[10px] flex items-center justify-center shadow-2xs">
                             S
                           </span>
                         )}
                         {st === 'Izin' && (
-                          <span className="w-6 h-6 mx-auto rounded-md bg-amber-100 text-amber-900 font-black text-[10px] flex items-center justify-center">
+                          <span className="w-6 h-6 mx-auto rounded-md bg-amber-100 text-amber-900 font-black text-[10px] flex items-center justify-center shadow-2xs">
                             I
                           </span>
                         )}
                         {st === 'Alpa' && (
-                          <span className="w-6 h-6 mx-auto rounded-md bg-rose-100 text-rose-900 font-black text-[10px] flex items-center justify-center">
+                          <span className="w-6 h-6 mx-auto rounded-md bg-rose-100 text-rose-900 font-black text-[10px] flex items-center justify-center shadow-2xs">
                             A
                           </span>
                         )}
-                        {!st && (
+                        {!st && isHoliday && (
+                          <span
+                            className="w-6 h-6 mx-auto rounded-md bg-rose-100/90 text-rose-700 border border-rose-200/90 font-black text-[9px] flex items-center justify-center"
+                            title={`Hari Libur: ${hol.name}`}
+                          >
+                            L
+                          </span>
+                        )}
+                        {!st && !isHoliday && (
                           <span className="text-[10px] text-slate-300 font-mono">-</span>
                         )}
                       </td>
@@ -319,6 +505,34 @@ export const MonthlyAttendanceReport: React.FC<MonthlyAttendanceReportProps> = (
           </tbody>
         </table>
       </div>
+
+      {/* Formal Signature Section */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 mt-6 print:mt-10">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 text-xs text-slate-800">
+          <div className="text-center space-y-16">
+            <p>Mengetahui,<br /><strong className="font-bold">Kepala Sekolah</strong></p>
+            <div>
+              <p className="font-bold underline text-slate-900">{settings?.namaKepalaSekolah || "SAIFURRAHMAN, SH"}</p>
+              {settings?.nipKepalaSekolah && settings.nipKepalaSekolah.trim() ? (
+                <p className="text-[11px] text-slate-500 font-mono">NIP. {settings.nipKepalaSekolah}</p>
+              ) : (
+                <p className="text-[11px] text-slate-400 italic">NIP. -</p>
+              )}
+            </div>
+          </div>
+
+          <div className="text-center space-y-16">
+            <p>Wringin, {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}<br /><strong className="font-bold">Wali Kelas / Petugas Presensi</strong></p>
+            <div>
+              <p className="font-bold underline text-slate-900">
+                {selectedClassId !== 'all' ? (classes.find(c => c.id === selectedClassId)?.teacherName || 'Wali Kelas') : 'Wali Kelas / Guru Piket'}
+              </p>
+              <p className="text-[11px] text-slate-500">Kelas: {selectedClassName}</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
+

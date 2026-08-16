@@ -48,8 +48,8 @@ let schoolSettingsDB: SchoolSettings = {
   email: "smaislam.raiyatulhusnan@gmail.sch.id",
   website: "www.smaislam-raiyatulhusnan.sch.id",
   logoUrl: "/school-logo.png",
-  namaKepalaSekolah: "Ust. Ahmad Fausan, S.Pd",
-  nipKepalaSekolah: "198504122010011002",
+  namaKepalaSekolah: "SAIFURRAHMAN, SH",
+  nipKepalaSekolah: "",
   naunganYayasan: "Yayasan Ra'iyatul Husnan Wringin",
 
   jamMasuk: '07:00',
@@ -74,7 +74,15 @@ if (savedBackup) {
   if (savedBackup.students && savedBackup.students.length > 0) studentsDB = savedBackup.students;
   if (savedBackup.attendance && savedBackup.attendance.length > 0) attendanceDB = savedBackup.attendance;
   if (savedBackup.bkNotes && savedBackup.bkNotes.length > 0) bkNotesDB = savedBackup.bkNotes;
-  if (savedBackup.settings) schoolSettingsDB = { ...schoolSettingsDB, ...savedBackup.settings };
+  if (savedBackup.settings) {
+    schoolSettingsDB = { ...schoolSettingsDB, ...savedBackup.settings };
+    if (!schoolSettingsDB.namaKepalaSekolah || schoolSettingsDB.namaKepalaSekolah === "Ust. Ahmad Fausan, S.Pd") {
+      schoolSettingsDB.namaKepalaSekolah = "SAIFURRAHMAN, SH";
+    }
+    if (schoolSettingsDB.nipKepalaSekolah === "198504122010011002") {
+      schoolSettingsDB.nipKepalaSekolah = "";
+    }
+  }
 }
 
 // Initial auto-sync of class, student, and teacher relations
@@ -82,6 +90,20 @@ const initialSynced = syncClassesAndStudentsData(classesDB, studentsDB, teachers
 classesDB = initialSynced.classes;
 studentsDB = initialSynced.students;
 teachersDB = initialSynced.teachers;
+
+// Helper to clean attendance records belonging to non-existent students (orphans / dummy)
+const cleanOrphanAttendance = () => {
+  if (studentsDB && studentsDB.length > 0) {
+    const validNisns = new Set(studentsDB.map(s => s.nisn));
+    const validIds = new Set(studentsDB.map(s => s.id));
+    const validNames = new Set(studentsDB.map(s => (s.name || '').trim().toLowerCase()));
+    attendanceDB = attendanceDB.filter(a =>
+      validNisns.has(a.nisn) || validIds.has(a.studentId) || (a.studentName && validNames.has(a.studentName.trim().toLowerCase()))
+    );
+  }
+};
+
+cleanOrphanAttendance();
 
 if (!savedBackup) {
   // Save initial mock data to local backup
@@ -94,6 +116,8 @@ const persistData = () => {
   classesDB = synced.classes;
   studentsDB = synced.students;
   teachersDB = synced.teachers;
+
+  cleanOrphanAttendance();
 
   saveLocalDBBackup({ classes: classesDB, teachers: teachersDB, students: studentsDB, attendance: attendanceDB, bkNotes: bkNotesDB, settings: schoolSettingsDB });
   const cfg = loadSupabaseConfig();
@@ -421,6 +445,8 @@ async function startServer() {
     }
 
     studentsDB = studentsDB.filter(s => s.id !== id);
+    // Remove attendance records belonging to deleted student
+    attendanceDB = attendanceDB.filter(a => a.studentId !== id && a.nisn !== student.nisn);
 
     // Update class counts
     classesDB.forEach(c => {
@@ -446,7 +472,10 @@ async function startServer() {
       return res.status(404).json({ error: 'Tidak ada siswa yang cocok untuk dihapus.' });
     }
 
+    const targetNisns = new Set(targetStudents.map(s => s.nisn));
     studentsDB = studentsDB.filter(s => !idSet.has(s.id));
+    // Remove attendance records belonging to deleted students
+    attendanceDB = attendanceDB.filter(a => !idSet.has(a.studentId) && !targetNisns.has(a.nisn));
 
     // Update class counts
     classesDB.forEach(c => {
@@ -976,9 +1005,19 @@ async function startServer() {
 
   // Get attendance records
   app.get('/api/attendance', (req, res) => {
+    cleanOrphanAttendance();
     const { classId, startDate, endDate, nisn, status, search } = req.query;
 
     let filtered = [...attendanceDB];
+
+    if (studentsDB && studentsDB.length > 0) {
+      const validNisns = new Set(studentsDB.map(s => s.nisn));
+      const validIds = new Set(studentsDB.map(s => s.id));
+      const validNames = new Set(studentsDB.map(s => (s.name || '').trim().toLowerCase()));
+      filtered = filtered.filter(a =>
+        validNisns.has(a.nisn) || validIds.has(a.studentId) || (a.studentName && validNames.has(a.studentName.trim().toLowerCase()))
+      );
+    }
 
     if (classId && classId !== 'all') {
       filtered = filtered.filter(a => a.classId === classId);

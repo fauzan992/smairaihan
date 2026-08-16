@@ -492,38 +492,6 @@ export const MonthlyKBMReport: React.FC<MonthlyKBMReportProps> = ({
           </div>
         </div>
 
-        {/* Quick Subject Filter Pills */}
-        <div className="pt-2">
-          <div className="text-[11px] font-bold text-slate-500 mb-1.5 flex items-center gap-1.5">
-            <span>Filter Cepat Mapel:</span>
-          </div>
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <button
-              onClick={() => setSelectedSubject('all')}
-              className={`px-3 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
-                selectedSubject === 'all'
-                  ? 'bg-emerald-800 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              🌐 Semua Mapel
-            </button>
-            {allAvailableSubjects.map((sub, idx) => (
-              <button
-                key={idx}
-                onClick={() => setSelectedSubject(sub)}
-                className={`px-3 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
-                  selectedSubject.toLowerCase() === sub.toLowerCase()
-                    ? 'bg-emerald-800 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-700 hover:bg-emerald-50 hover:text-emerald-800'
-                }`}
-              >
-                📖 {sub}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* Info Strip */}
         <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex flex-wrap items-center gap-4 text-slate-600">
@@ -772,8 +740,12 @@ export const MonthlyKBMReport: React.FC<MonthlyKBMReportProps> = ({
               <div className="text-center space-y-16">
                 <p>Mengetahui,<br /><strong className="font-bold">Kepala Sekolah</strong></p>
                 <div>
-                  <p className="font-bold underline text-slate-900">{schoolSettings?.namaKepalaSekolah || "Ust. Ahmad Fausan, S.Pd"}</p>
-                  <p className="text-[11px] text-slate-500 font-mono">NIP. {schoolSettings?.nipKepalaSekolah || "198504122010011002"}</p>
+                  <p className="font-bold underline text-slate-900">{schoolSettings?.namaKepalaSekolah || "SAIFURRAHMAN, SH"}</p>
+                  {schoolSettings?.nipKepalaSekolah && schoolSettings.nipKepalaSekolah.trim() ? (
+                    <p className="text-[11px] text-slate-500 font-mono">NIP. {schoolSettings.nipKepalaSekolah}</p>
+                  ) : (
+                    <p className="text-[11px] text-slate-400 italic">NIP. -</p>
+                  )}
                 </div>
               </div>
 

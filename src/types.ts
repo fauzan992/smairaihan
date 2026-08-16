@@ -109,8 +109,8 @@ export interface SchoolSettings {
   email?: string;              // default: "smaislam.raiyatulhusnan@gmail.sch.id"
   website?: string;            // default: "www.smaislam-raiyatulhusnan.sch.id"
   logoUrl?: string;            // default: "/school-logo.png"
-  namaKepalaSekolah?: string;  // default: "Ust. Ahmad Fausan, S.Pd"
-  nipKepalaSekolah?: string;   // default: "198504122010011002"
+  namaKepalaSekolah?: string;  // default: "SAIFURRAHMAN, SH"
+  nipKepalaSekolah?: string;   // default: ""
   naunganYayasan?: string;     // default: "Yayasan Ra'iyatul Husnan"
 
   // Jam Absensi & Hari Libur

@@ -45,8 +45,8 @@ const DEFAULT_SETTINGS: SchoolSettings = {
   email: "smaislam.raiyatulhusnan@gmail.sch.id",
   website: "www.smaislam-raiyatulhusnan.sch.id",
   logoUrl: "/school-logo.png",
-  namaKepalaSekolah: "Ust. Ahmad Fausan, S.Pd",
-  nipKepalaSekolah: "198504122010011002",
+  namaKepalaSekolah: "SAIFURRAHMAN, SH",
+  nipKepalaSekolah: "",
   naunganYayasan: "Yayasan Ra'iyatul Husnan Wringin",
   jamMasuk: '07:00',
   batasTerlambat: '07:15',
@@ -102,12 +102,30 @@ function saveLocalStudents(data: Student[]) {
 
 function getLocalAttendance(): AttendanceRecord[] {
   const raw = localStorage.getItem('app_attendance_records');
+  const localStudents = getLocalStudents();
+  const validNisns = new Set(localStudents.map(s => s.nisn));
+  const validIds = new Set(localStudents.map(s => s.id));
+  const validNames = new Set(localStudents.map(s => (s.name || '').trim().toLowerCase()));
+
   if (!raw) {
-    const initial = generateInitialAttendance();
+    const initial = generateInitialAttendance().filter(a =>
+      validNisns.has(a.nisn) || validIds.has(a.studentId) || (a.studentName && validNames.has(a.studentName.trim().toLowerCase()))
+    );
     localStorage.setItem('app_attendance_records', JSON.stringify(initial));
     return initial;
   }
-  try { return JSON.parse(raw); } catch { return []; }
+  try {
+    const parsed: AttendanceRecord[] = JSON.parse(raw);
+    const cleaned = parsed.filter(a =>
+      validNisns.has(a.nisn) || validIds.has(a.studentId) || (a.studentName && validNames.has(a.studentName.trim().toLowerCase()))
+    );
+    if (cleaned.length !== parsed.length) {
+      localStorage.setItem('app_attendance_records', JSON.stringify(cleaned));
+    }
+    return cleaned;
+  } catch {
+    return [];
+  }
 }
 
 function saveLocalAttendance(data: AttendanceRecord[]) {
@@ -120,7 +138,24 @@ function getLocalSettings(): SchoolSettings {
     localStorage.setItem('app_school_settings', JSON.stringify(DEFAULT_SETTINGS));
     return DEFAULT_SETTINGS;
   }
-  try { return JSON.parse(raw); } catch { return DEFAULT_SETTINGS; }
+  try {
+    const parsed = JSON.parse(raw);
+    let changed = false;
+    if (!parsed.namaKepalaSekolah || parsed.namaKepalaSekolah === "Ust. Ahmad Fausan, S.Pd") {
+      parsed.namaKepalaSekolah = "SAIFURRAHMAN, SH";
+      changed = true;
+    }
+    if (parsed.nipKepalaSekolah === "198504122010011002") {
+      parsed.nipKepalaSekolah = "";
+      changed = true;
+    }
+    if (changed) {
+      localStorage.setItem('app_school_settings', JSON.stringify(parsed));
+    }
+    return parsed;
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
 }
 
 function saveLocalSettings(data: SchoolSettings) {
@@ -273,8 +308,8 @@ export const apiService = {
               email: rawSettings.email || "smaislam.raiyatulhusnan@gmail.sch.id",
               website: rawSettings.website || "www.smaislam-raiyatulhusnan.sch.id",
               logoUrl: rawSettings.logo_url || "/school-logo.png",
-              namaKepalaSekolah: rawSettings.nama_kepala_sekolah || "Ust. Ahmad Fausan, S.Pd",
-              nipKepalaSekolah: rawSettings.nip_kepala_sekolah || "198504122010011002",
+              namaKepalaSekolah: (rawSettings.nama_kepala_sekolah && rawSettings.nama_kepala_sekolah !== "Ust. Ahmad Fausan, S.Pd") ? rawSettings.nama_kepala_sekolah : "SAIFURRAHMAN, SH",
+              nipKepalaSekolah: (rawSettings.nip_kepala_sekolah && rawSettings.nip_kepala_sekolah !== "198504122010011002") ? rawSettings.nip_kepala_sekolah : "",
               naunganYayasan: rawSettings.naungan_yayasan || "Yayasan Ra'iyatul Husnan Wringin",
               jamMasuk: rawSettings.jam_masuk || '07:00',
               batasTerlambat: rawSettings.batas_terlambat || '07:15',
@@ -525,6 +560,11 @@ export const apiService = {
   async deleteStudent(id: string): Promise<{ success: boolean; error?: string; message?: string }> {
     const res = await safeFetchJson<{ message?: string }>(`/api/master/students/${id}`, { method: 'DELETE' });
     if (res.ok && res.data) {
+      // Clean local attendance for this student as well
+      const localAttendance = getLocalAttendance();
+      const cleaned = localAttendance.filter(a => a.studentId !== id);
+      saveLocalAttendance(cleaned);
+
       deleteStudentFromBrowserSupabase(id);
       return { success: true, message: res.data.message };
     }
@@ -537,6 +577,11 @@ export const apiService = {
     const targetStudent = students.find(s => s.id === id);
     students = students.filter(s => s.id !== id);
     saveLocalStudents(students);
+
+    // Clean local attendance for this student
+    const localAttendance = getLocalAttendance();
+    const cleaned = localAttendance.filter(a => a.studentId !== id && a.nisn !== targetStudent?.nisn);
+    saveLocalAttendance(cleaned);
 
     deleteStudentFromBrowserSupabase(id, targetStudent?.nisn);
     return { success: true, message: 'Data siswa berhasil dihapus.' };
@@ -553,12 +598,18 @@ export const apiService = {
       body: JSON.stringify({ ids })
     });
 
+    const idSet = new Set(ids);
+
     if (res.ok && res.data) {
       let students = getLocalStudents();
-      const idSet = new Set(ids);
       const deletedList = students.filter(s => idSet.has(s.id));
       students = students.filter(s => !idSet.has(s.id));
       saveLocalStudents(students);
+
+      const targetNisns = new Set(deletedList.map(s => s.nisn));
+      const localAttendance = getLocalAttendance();
+      const cleaned = localAttendance.filter(a => !idSet.has(a.studentId) && !targetNisns.has(a.nisn));
+      saveLocalAttendance(cleaned);
 
       deletedList.forEach(st => {
         deleteStudentFromBrowserSupabase(st.id, st.nisn);
@@ -576,10 +627,14 @@ export const apiService = {
     }
 
     let students = getLocalStudents();
-    const idSet = new Set(ids);
     const deletedList = students.filter(s => idSet.has(s.id));
     students = students.filter(s => !idSet.has(s.id));
     saveLocalStudents(students);
+
+    const targetNisns = new Set(deletedList.map(s => s.nisn));
+    const localAttendance = getLocalAttendance();
+    const cleaned = localAttendance.filter(a => !idSet.has(a.studentId) && !targetNisns.has(a.nisn));
+    saveLocalAttendance(cleaned);
 
     deletedList.forEach(st => {
       deleteStudentFromBrowserSupabase(st.id, st.nisn);
@@ -945,6 +1000,16 @@ export const apiService = {
 
     const res = await safeFetchJson<{ records: AttendanceRecord[]; total: number }>(`/api/attendance?${query.toString()}`);
     if (res.ok && res.data) {
+      const localStudents = getLocalStudents();
+      if (localStudents && localStudents.length > 0) {
+        const validNisns = new Set(localStudents.map(s => s.nisn));
+        const validIds = new Set(localStudents.map(s => s.id));
+        const validNames = new Set(localStudents.map(s => (s.name || '').trim().toLowerCase()));
+        const cleanRecords = res.data.records.filter(r =>
+          validNisns.has(r.nisn) || validIds.has(r.studentId) || (r.studentName && validNames.has(r.studentName.trim().toLowerCase()))
+        );
+        return { records: cleanRecords, total: cleanRecords.length };
+      }
       return res.data;
     }
 

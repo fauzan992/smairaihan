@@ -32,10 +32,20 @@ export const MainDashboardOverview: React.FC<MainDashboardOverviewProps> = ({
   // Current Date string (YYYY-MM-DD)
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
+  // Filter attendance records to only include valid students in master data
+  const validAttendanceRecords = useMemo(() => {
+    const validNisns = new Set(students.map(s => s.nisn));
+    const validIds = new Set(students.map(s => s.id));
+    const validNames = new Set(students.map(s => (s.name || '').trim().toLowerCase()));
+    return attendanceRecords.filter(r =>
+      validNisns.has(r.nisn) || validIds.has(r.studentId) || (r.studentName && validNames.has(r.studentName.trim().toLowerCase()))
+    );
+  }, [attendanceRecords, students]);
+
   // Today's records
   const todayRecords = useMemo(() => {
-    return attendanceRecords.filter(r => r.date === todayStr);
-  }, [attendanceRecords, todayStr]);
+    return validAttendanceRecords.filter(r => r.date === todayStr);
+  }, [validAttendanceRecords, todayStr]);
 
   // Today's summary counts
   const todayHadir = useMemo(() => todayRecords.filter(r => r.status === 'Hadir').length, [todayRecords]);
@@ -89,8 +99,8 @@ export const MainDashboardOverview: React.FC<MainDashboardOverviewProps> = ({
       });
     }
 
-    // Populate counts from attendanceRecords
-    attendanceRecords.forEach(rec => {
+    // Populate counts from validAttendanceRecords
+    validAttendanceRecords.forEach(rec => {
       if (dayMap.has(rec.date)) {
         const item = dayMap.get(rec.date)!;
         if (rec.status === 'Hadir') item.Hadir += 1;
@@ -102,7 +112,7 @@ export const MainDashboardOverview: React.FC<MainDashboardOverviewProps> = ({
     });
 
     return Array.from(dayMap.values());
-  }, [attendanceRecords]);
+  }, [validAttendanceRecords]);
 
   // Class Attendance Rate Comparison (BarChart data)
   const classAttendanceRates = useMemo(() => {
@@ -110,7 +120,7 @@ export const MainDashboardOverview: React.FC<MainDashboardOverviewProps> = ({
       const classStudents = students.filter(s => s.classId === c.id);
       const studentNisns = new Set(classStudents.map(s => s.nisn));
       
-      const classRecs = attendanceRecords.filter(r => studentNisns.has(r.nisn));
+      const classRecs = validAttendanceRecords.filter(r => studentNisns.has(r.nisn));
       const hadirCount = classRecs.filter(r => r.status === 'Hadir').length;
       const totalLogged = classRecs.length || 1;
       const rate = Math.round((hadirCount / totalLogged) * 100);
@@ -122,7 +132,7 @@ export const MainDashboardOverview: React.FC<MainDashboardOverviewProps> = ({
         hadir: hadirCount
       };
     });
-  }, [classes, students, attendanceRecords]);
+  }, [classes, students, validAttendanceRecords]);
 
   // 30 Days Status Distribution for Donut Chart
   const statusDistribution30Days = useMemo(() => {
@@ -378,7 +388,7 @@ export const MainDashboardOverview: React.FC<MainDashboardOverviewProps> = ({
             </div>
             <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 font-semibold border-t border-slate-100">
               <span>* Data dihimpun dari rekaman scan barcode NISN harian</span>
-              <span className="text-emerald-800 font-extrabold">Total Record 30 Hari: {attendanceRecords.length} Data</span>
+              <span className="text-emerald-800 font-extrabold">Total Record 30 Hari: {validAttendanceRecords.length} Data</span>
             </div>
           </div>
         )}

@@ -329,8 +329,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return matchSearch && matchClass;
   }).sort((a, b) => a.name.localeCompare(b.name, 'id', { sensitivity: 'base' }));
 
-  // Filtered Reports
+  // Filtered Reports (Strictly only students in Master Data Siswa)
   const filteredReports = attendanceRecords.filter(rec => {
+    // Validasi siswa ada di Master Data Siswa
+    const isMasterStudent = students.some(
+      s => s.id === rec.studentId || s.nisn === rec.nisn || (s.name && rec.studentName && s.name.trim().toLowerCase() === rec.studentName.trim().toLowerCase())
+    );
+    if (!isMasterStudent) return false;
+
     const selectedClassObj = classes.find(c => c.id === reportClassFilter);
     const matchClass = reportClassFilter === 'all' ||
                        rec.classId === reportClassFilter ||
@@ -681,6 +687,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           students={students}
           classes={classes}
           attendanceRecords={attendanceRecords}
+        />
+      ) : activeTab === 'teacherAdmin' ? (
+        <TeacherClassAdminSection
+          user={{ id: 'admin-1', username: 'admin', name: 'Administrator Utama', role: 'admin' }}
+          students={students}
+          teachers={teachers}
+          classes={classes}
+          attendanceRecords={attendanceRecords}
+          onRefreshData={onRefreshData}
         />
       ) : (
         <>
@@ -2031,18 +2046,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               classes={classes}
               attendanceRecords={attendanceRecords}
               bkNotes={bkNotes}
-              onRefreshData={onRefreshData}
-            />
-          )}
-
-          {/* TAB 4.8: ADMINISTRASI KELAS & KBM (KHUSUS GURU & ADMIN) */}
-          {activeTab === 'teacherAdmin' && (
-            <TeacherClassAdminSection
-              user={{ id: 'admin-1', username: 'admin', name: 'Administrator Utama', role: 'admin' }}
-              students={students}
-              teachers={teachers}
-              classes={classes}
-              attendanceRecords={attendanceRecords}
               onRefreshData={onRefreshData}
             />
           )}
