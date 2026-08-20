@@ -26,6 +26,9 @@ export interface Student {
   parentPhone: string;
   photoUrl?: string;
   defaultPassword?: string;
+  birthDate?: string;
+  address?: string;
+  academicYear?: string;
 }
 
 export interface Teacher {

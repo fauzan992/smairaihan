@@ -250,12 +250,17 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   // Initialize rear camera QR/barcode scanner directly
   useEffect(() => {
     let html5QrCode: Html5Qrcode | null = null;
+    let isCancelled = false;
 
     if (scannerMode === 'camera') {
       const readerElementId = uniqueReaderId;
 
       // Ensure target element exists in DOM before creating Html5Qrcode instance
       const timer = setTimeout(() => {
+        if (isCancelled) return;
+        const readerElement = document.getElementById(readerElementId);
+        if (!readerElement) return;
+
         try {
           html5QrCode = new Html5Qrcode(readerElementId);
           html5QrCodeRef.current = html5QrCode;
@@ -279,9 +284,19 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               }
             )
             .then(() => {
-              setCameraActive(true);
+              if (!isCancelled) {
+                setCameraActive(true);
+              } else {
+                // Component unmounted while camera was starting
+                try {
+                  if (html5QrCode?.isScanning) {
+                    html5QrCode.stop().then(() => html5QrCode?.clear()).catch(() => {});
+                  }
+                } catch (_) {}
+              }
             })
             .catch((err) => {
+              if (isCancelled) return;
               console.warn('Rear camera exact match failed, falling back to default video input:', err);
               // Fallback to user camera or default device if environment camera is unavailable
               if (html5QrCode) {
@@ -294,8 +309,11 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                     },
                     () => {}
                   )
-                  .then(() => setCameraActive(true))
+                  .then(() => {
+                    if (!isCancelled) setCameraActive(true);
+                  })
                   .catch((e) => {
+                    if (isCancelled) return;
                     console.error('All camera attempts failed:', e);
                     setErrorMsg('Tidak dapat mengakses kamera. Pastikan izin kamera telah diberikan di browser.');
                     setCameraActive(false);
@@ -305,18 +323,36 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         } catch (e) {
           console.error('Error starting camera scanner:', e);
         }
-      }, 150);
+      }, 200);
 
       return () => {
+        isCancelled = true;
         clearTimeout(timer);
-        if (html5QrCodeRef.current) {
-          html5QrCodeRef.current
-            .stop()
-            .then(() => {
-              html5QrCodeRef.current?.clear();
-            })
-            .catch((err) => console.warn('Failed to stop camera scanner:', err));
+        const scannerInstance = html5QrCodeRef.current;
+        if (scannerInstance) {
+          try {
+            if (scannerInstance.isScanning) {
+              scannerInstance
+                .stop()
+                .then(() => {
+                  try {
+                    scannerInstance.clear();
+                  } catch (_) {}
+                })
+                .catch((err) => {
+                  // Catch gracefully if scanner was already stopped or unmounted
+                  console.warn('Silent notice: Camera scanner stopped gracefully:', err?.message || err);
+                });
+            } else {
+              try {
+                scannerInstance.clear();
+              } catch (_) {}
+            }
+          } catch (e) {
+            // Scanner instance already detached or cleaned up
+          }
         }
+        html5QrCodeRef.current = null;
         setCameraActive(false);
       };
     }

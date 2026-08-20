@@ -403,7 +403,24 @@ export const apiService = {
 
     if (role === 'wali') {
       const students = getLocalStudents();
-      const student = students.find(s => s.nisn === trimmedUsername);
+      const cleanInput = trimmedUsername.replace(/\D/g, '');
+      
+      // 1. Check NISN
+      let student = students.find(s => s.nisn === trimmedUsername);
+
+      // 2. Check Parent Phone
+      if (!student && cleanInput.length >= 8) {
+        student = students.find(s => {
+          const sPhoneClean = (s.parentPhone || '').replace(/\D/g, '');
+          if (!sPhoneClean) return false;
+          return sPhoneClean === cleanInput || 
+                 sPhoneClean.endsWith(cleanInput) || 
+                 cleanInput.endsWith(sPhoneClean) ||
+                 (cleanInput.startsWith('0') && sPhoneClean === '62' + cleanInput.slice(1)) ||
+                 (cleanInput.startsWith('62') && sPhoneClean === '0' + cleanInput.slice(2));
+        });
+      }
+
       if (student) {
         return {
           success: true,
@@ -419,7 +436,10 @@ export const apiService = {
           }
         };
       }
-      return { success: false, error: (res.data?.error && !res.isHtml) ? res.data.error : 'NISN Siswa tidak terdaftar dalam database sekolah.' };
+      return { 
+        success: false, 
+        error: (res.data?.error && !res.isHtml) ? res.data.error : 'Data Siswa / Nomor HP Wali tidak terdaftar dalam database sekolah.' 
+      };
     }
 
     // Staff auto-detection (Admin / Guru / BK)
@@ -465,6 +485,115 @@ export const apiService = {
 
     const cleanError = (res.data?.error && !res.isHtml) ? res.data.error : 'Username/NIP atau Password yang Anda masukkan tidak terdaftar.';
     return { success: false, error: cleanError };
+  },
+
+  // Secure Targeted Verification for Wali Murid (Name + Birth Date)
+  async verifyWaliStudent(params: {
+    studentName: string;
+    birthDate?: string;
+    parentPhone?: string;
+    classId?: string;
+  }): Promise<{
+    success: boolean;
+    user?: User;
+    studentInfo?: { name: string; className: string; nisn: string };
+    error?: string;
+  }> {
+    const res = await safeFetchJson<{
+      success: boolean;
+      user?: User;
+      studentInfo?: { name: string; className: string; nisn: string };
+      error?: string;
+    }>('/api/auth/wali/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+
+    if (res.ok && res.data?.success && res.data?.user) {
+      return {
+        success: true,
+        user: res.data.user,
+        studentInfo: res.data.studentInfo
+      };
+    }
+
+    // Client fallback verification
+    const normalizeDateStr = (d?: string) => {
+      if (!d) return '';
+      const str = String(d).trim();
+      if (!str || str === '-' || str === 'null') return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+      const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (dmyMatch) {
+        return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
+      }
+      const parsed = new Date(str);
+      if (!isNaN(parsed.getTime())) {
+        return parsed.toISOString().split('T')[0];
+      }
+      return str;
+    };
+
+    const students = getLocalStudents();
+    const cleanInputName = (params.studentName || '').trim().toLowerCase();
+    const cleanInputBirthDate = normalizeDateStr(params.birthDate);
+    const cleanInputPhone = (params.parentPhone || '').replace(/\D/g, '');
+
+    const matched = students.find(s => {
+      const sName = (s.name || '').trim().toLowerCase();
+      const nameMatches = sName === cleanInputName || sName.includes(cleanInputName) || cleanInputName.includes(sName);
+      if (!nameMatches) return false;
+
+      // Match birth date
+      if (cleanInputBirthDate) {
+        const sBirthDate = normalizeDateStr(s.birthDate);
+        if (sBirthDate && sBirthDate === cleanInputBirthDate) {
+          return true;
+        }
+      }
+
+      // Match phone fallback
+      if (cleanInputPhone && cleanInputPhone.length >= 4) {
+        const sPhoneClean = (s.parentPhone || '').replace(/\D/g, '');
+        if (sPhoneClean) {
+          return sPhoneClean === cleanInputPhone ||
+                 sPhoneClean.endsWith(cleanInputPhone) ||
+                 cleanInputPhone.endsWith(sPhoneClean) ||
+                 (cleanInputPhone.startsWith('0') && sPhoneClean === '62' + cleanInputPhone.slice(1)) ||
+                 (cleanInputPhone.startsWith('62') && sPhoneClean === '0' + cleanInputPhone.slice(2));
+        }
+      }
+
+      return false;
+    });
+
+    if (matched) {
+      const waliUser: User = {
+        id: `wali-${matched.id}`,
+        username: matched.nisn,
+        name: matched.parentName || `Wali dari ${matched.name}`,
+        role: 'wali',
+        nisn: matched.nisn,
+        childNisn: matched.nisn,
+        childName: matched.name,
+        className: matched.className
+      };
+      return {
+        success: true,
+        user: waliUser,
+        studentInfo: {
+          name: matched.name,
+          className: matched.className,
+          nisn: matched.nisn
+        }
+      };
+    }
+
+    return {
+      success: false,
+      error: res.data?.error || 'Data tidak cocok. Pastikan Nama Lengkap Siswa dan Tanggal Lahir sesuai dengan data yang terdaftar di sekolah.'
+    };
   },
 
   // Master Data
@@ -524,6 +653,9 @@ export const apiService = {
       gender: studentData.gender || 'L',
       classId: studentData.classId || 'cls-1',
       className: studentData.className || 'X MIPA 1',
+      birthDate: studentData.birthDate || undefined,
+      address: studentData.address || undefined,
+      academicYear: studentData.academicYear || '2024/2025',
       parentName: studentData.parentName,
       parentPhone: studentData.parentPhone,
       photoUrl: studentData.photoUrl,
@@ -1127,7 +1259,13 @@ export const apiService = {
       const s = studentsInput[sIdx];
       const idx = existingStudents.findIndex(e => (s.nisn && e.nisn === s.nisn) || (s.id && e.id === s.id));
       if (idx !== -1) {
-        existingStudents[idx] = { ...existingStudents[idx], ...s };
+        existingStudents[idx] = {
+          ...existingStudents[idx],
+          ...s,
+          birthDate: s.birthDate !== undefined ? s.birthDate : existingStudents[idx].birthDate,
+          address: s.address !== undefined ? s.address : existingStudents[idx].address,
+          academicYear: s.academicYear || existingStudents[idx].academicYear || '2024/2025'
+        };
       } else {
         existingStudents.push({
           id: s.id || `std-${Date.now()}-${sIdx}-${Math.random().toString(36).substring(2, 7)}`,
@@ -1136,6 +1274,9 @@ export const apiService = {
           gender: s.gender || 'L',
           classId: s.classId || '',
           className: s.className || '',
+          birthDate: s.birthDate || undefined,
+          address: s.address || undefined,
+          academicYear: s.academicYear || '2024/2025',
           parentName: s.parentName || 'Wali Murid',
           parentPhone: s.parentPhone || '-',
           defaultPassword: s.defaultPassword || '123'

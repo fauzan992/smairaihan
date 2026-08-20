@@ -22,6 +22,7 @@ import {
   deleteTeacherFromSupabase,
   deleteClassFromSupabase,
   deleteStudentFromSupabase,
+  upsertStudentToSupabase,
   SUPABASE_SQL_SCHEMA
 } from './src/services/supabaseService';
 import { syncClassesAndStudentsData, findMatchingClass, inferGradeLevel } from './src/utils/dataSync';
@@ -283,7 +284,23 @@ async function startServer() {
     const trimmedPassword = (password || '').trim();
 
     if (role === 'wali') {
-      const student = studentsDB.find(s => s.nisn === trimmedUsername);
+      const cleanInput = trimmedUsername.replace(/\D/g, '');
+      
+      // 1. Try finding by NISN
+      let student = studentsDB.find(s => s.nisn === trimmedUsername);
+
+      // 2. Try finding by Parent Phone (if input is numeric and length >= 8)
+      if (!student && cleanInput.length >= 8) {
+        student = studentsDB.find(s => {
+          const sPhoneClean = (s.parentPhone || '').replace(/\D/g, '');
+          if (!sPhoneClean) return false;
+          return sPhoneClean === cleanInput || 
+                 sPhoneClean.endsWith(cleanInput) || 
+                 cleanInput.endsWith(sPhoneClean) ||
+                 (cleanInput.startsWith('0') && sPhoneClean === '62' + cleanInput.slice(1)) ||
+                 (cleanInput.startsWith('62') && sPhoneClean === '0' + cleanInput.slice(2));
+        });
+      }
 
       if (student) {
         const waliUser: User = {
@@ -298,7 +315,9 @@ async function startServer() {
         };
         return res.json({ success: true, user: waliUser, student });
       } else {
-        return res.status(404).json({ error: `NISN Siswa ${trimmedUsername} tidak ditemukan dalam database sekolah.` });
+        return res.status(404).json({ 
+          error: `Data Siswa / Nomor HP Wali tidak ditemukan. Pastikan NISN atau No. WhatsApp sudah benar dan terdaftar di sekolah.` 
+        });
       }
     }
 
@@ -362,6 +381,102 @@ async function startServer() {
     return res.status(401).json({ error: 'Username/NIP atau password yang Anda masukkan salah.' });
   });
 
+  // Helper to normalize dates for comparison
+  function normalizeDateToYMD(dateStr?: string): string {
+    if (!dateStr) return '';
+    const str = String(dateStr).trim();
+    if (!str || str === '-' || str === 'null' || str === 'undefined') return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (dmyMatch) {
+      const day = dmyMatch[1].padStart(2, '0');
+      const month = dmyMatch[2].padStart(2, '0');
+      const year = dmyMatch[3];
+      return `${year}-${month}-${day}`;
+    }
+    const parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString().split('T')[0];
+    }
+    return str;
+  }
+
+  // Secure Wali Murid Verification Endpoint (Verification by Student Name & Birth Date)
+  app.post('/api/auth/wali/verify', (req, res) => {
+    const { studentName, birthDate, parentPhone } = req.body;
+
+    if (!studentName || (!birthDate && !parentPhone)) {
+      return res.status(400).json({ error: 'Nama Lengkap Siswa dan Tanggal Lahir wajib diisi.' });
+    }
+
+    const cleanInputName = (studentName || '').trim().toLowerCase();
+    const cleanInputBirthDate = normalizeDateToYMD(birthDate);
+    const cleanInputPhone = parentPhone ? String(parentPhone).replace(/\D/g, '') : '';
+
+    if (cleanInputName.length < 3) {
+      return res.status(400).json({ error: 'Masukkan minimal 3 karakter nama siswa.' });
+    }
+
+    // Search for match across all students (no class selection needed)
+    const matched = studentsDB.find(s => {
+      const sName = (s.name || '').trim().toLowerCase();
+
+      // Name matching (contains or exact)
+      const nameMatches = sName === cleanInputName || sName.includes(cleanInputName) || cleanInputName.includes(sName);
+      if (!nameMatches) return false;
+
+      // Birth date matching
+      if (cleanInputBirthDate) {
+        const sBirthDate = normalizeDateToYMD(s.birthDate);
+        if (sBirthDate && sBirthDate === cleanInputBirthDate) {
+          return true;
+        }
+      }
+
+      // Optional phone fallback if provided
+      if (cleanInputPhone && cleanInputPhone.length >= 4) {
+        const sPhoneClean = (s.parentPhone || '').replace(/\D/g, '');
+        if (sPhoneClean) {
+          const phoneMatches = sPhoneClean === cleanInputPhone ||
+                               sPhoneClean.endsWith(cleanInputPhone) ||
+                               cleanInputPhone.endsWith(sPhoneClean) ||
+                               (cleanInputPhone.startsWith('0') && sPhoneClean === '62' + cleanInputPhone.slice(1)) ||
+                               (cleanInputPhone.startsWith('62') && sPhoneClean === '0' + cleanInputPhone.slice(2));
+          if (phoneMatches) return true;
+        }
+      }
+
+      return false;
+    });
+
+    if (matched) {
+      const waliUser: User = {
+        id: `wali-${matched.id}`,
+        username: matched.nisn,
+        name: matched.parentName || `Wali dari ${matched.name}`,
+        role: 'wali',
+        nisn: matched.nisn,
+        childNisn: matched.nisn,
+        childName: matched.name,
+        className: matched.className
+      };
+      return res.json({
+        success: true,
+        user: waliUser,
+        studentInfo: {
+          name: matched.name,
+          className: matched.className,
+          nisn: matched.nisn
+        },
+        message: 'Verifikasi identitas wali murid berhasil!'
+      });
+    }
+
+    return res.status(404).json({
+      error: 'Data tidak cocok. Pastikan Nama Lengkap Siswa dan Tanggal Lahir sesuai dengan data yang terdaftar di sekolah.'
+    });
+  });
+
   // Get master data
   app.get('/api/master/data', (req, res) => {
     const synced = syncClassesAndStudentsData(classesDB, studentsDB, teachersDB);
@@ -378,7 +493,7 @@ async function startServer() {
 
   // Student CRUD
   app.post('/api/master/students', (req, res) => {
-    const { nisn, name, gender, classId, parentName, parentPhone, photoUrl } = req.body;
+    const { nisn, name, gender, classId, birthDate, address, parentName, parentPhone, photoUrl } = req.body;
 
     if (!nisn || !name || !classId) {
       return res.status(400).json({ error: 'NISN, Nama, dan Kelas wajib diisi.' });
@@ -396,6 +511,8 @@ async function startServer() {
       gender: gender || 'L',
       classId,
       className: selectedClass?.name || 'Unassigned',
+      birthDate: birthDate || undefined,
+      address: address || undefined,
       parentName: parentName || 'Wali Siswa',
       parentPhone: parentPhone || '-',
       photoUrl: photoUrl || '',
@@ -410,6 +527,10 @@ async function startServer() {
     }
 
     persistData();
+
+    // Sync to Supabase if connected
+    upsertStudentToSupabase(newStudent).catch(e => console.error('Error syncing new student to Supabase:', e));
+
     res.json({ success: true, student: newStudent, message: 'Data siswa berhasil ditambahkan!' });
   });
 
@@ -421,7 +542,7 @@ async function startServer() {
       return res.status(404).json({ error: 'Siswa tidak ditemukan.' });
     }
 
-    const { nisn, name, gender, classId, parentName, parentPhone, photoUrl } = req.body;
+    const { nisn, name, gender, classId, birthDate, address, parentName, parentPhone, photoUrl } = req.body;
     const selectedClass = classesDB.find(c => c.id === classId);
 
     studentsDB[index] = {
@@ -431,6 +552,8 @@ async function startServer() {
       gender: gender || studentsDB[index].gender,
       classId: classId || studentsDB[index].classId,
       className: selectedClass ? selectedClass.name : studentsDB[index].className,
+      birthDate: birthDate !== undefined ? birthDate : studentsDB[index].birthDate,
+      address: address !== undefined ? address : studentsDB[index].address,
       parentName: parentName || studentsDB[index].parentName,
       parentPhone: parentPhone || studentsDB[index].parentPhone,
       photoUrl: photoUrl !== undefined ? photoUrl : studentsDB[index].photoUrl
@@ -442,6 +565,10 @@ async function startServer() {
     });
 
     persistData();
+
+    // Sync to Supabase if connected
+    upsertStudentToSupabase(studentsDB[index]).catch(e => console.error('Error updating student in Supabase:', e));
+
     res.json({ success: true, student: studentsDB[index], message: 'Data siswa berhasil diperbarui!' });
   });
 
@@ -1095,8 +1222,11 @@ async function startServer() {
         cls = classesDB[0];
       }
 
-      const genderCode = (String(item.gender || '').trim().toUpperCase().startsWith('P') || item.gender === 'Perempuan') ? 'P' : 'L';
+      const genderCode: 'L' | 'P' = (String(item.gender || '').trim().toUpperCase().startsWith('P') || item.gender === 'Perempuan') ? 'P' : 'L';
       const cleanNisn = String(item.nisn).trim();
+      const cleanBirthDate = item.birthDate ? String(item.birthDate).trim() : undefined;
+      const cleanAddress = item.address ? String(item.address).trim() : undefined;
+      const cleanAcademicYear = item.academicYear ? String(item.academicYear).trim() : '2024/2025';
 
       const existingIndex = studentsDB.findIndex(s => s.nisn === cleanNisn);
       if (existingIndex !== -1) {
@@ -1106,23 +1236,32 @@ async function startServer() {
           gender: genderCode,
           classId: cls ? cls.id : studentsDB[existingIndex].classId,
           className: cls ? cls.name : studentsDB[existingIndex].className,
+          birthDate: cleanBirthDate !== undefined ? cleanBirthDate : studentsDB[existingIndex].birthDate,
+          address: cleanAddress !== undefined ? cleanAddress : studentsDB[existingIndex].address,
+          academicYear: cleanAcademicYear || studentsDB[existingIndex].academicYear || '2024/2025',
           parentName: item.parentName ? String(item.parentName).trim() : studentsDB[existingIndex].parentName,
           parentPhone: item.parentPhone ? String(item.parentPhone).trim() : studentsDB[existingIndex].parentPhone
         };
         updatedCount++;
+        upsertStudentToSupabase(studentsDB[existingIndex]).catch(e => console.error('Error syncing imported student update to Supabase:', e));
       } else {
-        studentsDB.push({
-          id: `std-${Date.now()}-${itemIdx}-${Math.random().toString(36).substring(2, 7)}`,
+        const newSt: Student = {
+          id: item.id || `std-${Date.now()}-${itemIdx}-${Math.random().toString(36).substring(2, 7)}`,
           nisn: cleanNisn,
           name: String(item.name).trim(),
           gender: genderCode,
           classId: cls ? cls.id : 'cls-1',
           className: cls ? cls.name : 'X MIPA 1',
+          birthDate: cleanBirthDate,
+          address: cleanAddress,
+          academicYear: cleanAcademicYear || '2024/2025',
           parentName: item.parentName ? String(item.parentName).trim() : 'Wali Murid',
           parentPhone: item.parentPhone ? String(item.parentPhone).trim() : '-',
           defaultPassword: '123'
-        });
+        };
+        studentsDB.push(newSt);
         addedCount++;
+        upsertStudentToSupabase(newSt).catch(e => console.error('Error syncing new imported student to Supabase:', e));
       }
     });
 

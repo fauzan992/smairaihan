@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Student, AttendanceRecord, SchoolSettings } from '../types';
-import { NISNBarcode } from './NISNBarcode';
+import { StudentQRCodeCardModal } from './StudentQRCodeCardModal';
 import { apiService } from '../services/apiService';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
@@ -1036,11 +1036,8 @@ export const WaliMuridDashboard: React.FC<WaliMuridDashboardProps> = ({
 
       {/* Barcode Printable Card Modal */}
       {showBarcodeModal && (
-        <NISNBarcode
-          nisn={student.nisn}
-          studentName={student.name}
-          className={student.className}
-          displayMode="card"
+        <StudentQRCodeCardModal
+          student={student}
           onClose={() => setShowBarcodeModal(false)}
         />
       )}

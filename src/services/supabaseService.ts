@@ -182,6 +182,8 @@ CREATE TABLE IF NOT EXISTS students (
   gender TEXT DEFAULT 'L',
   class_id TEXT NOT NULL,
   class_name TEXT NOT NULL,
+  birth_date TEXT,
+  address TEXT,
   parent_name TEXT,
   parent_phone TEXT,
   photo_url TEXT,
@@ -195,6 +197,8 @@ ALTER TABLE teachers ADD COLUMN IF NOT EXISTS password TEXT;
 
 ALTER TABLE students ADD COLUMN IF NOT EXISTS photo_url TEXT;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS default_password TEXT DEFAULT '123';
+ALTER TABLE students ADD COLUMN IF NOT EXISTS birth_date TEXT;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS address TEXT;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS parent_name TEXT;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS parent_phone TEXT;
 
@@ -398,6 +402,8 @@ export async function pushAllToSupabase(data: {
       gender: s.gender || 'L',
       class_id: s.classId,
       class_name: s.className,
+      birth_date: s.birthDate || null,
+      address: s.address || null,
       parent_name: s.parentName || '',
       parent_phone: s.parentPhone || '',
       photo_url: s.photoUrl || '',
@@ -575,6 +581,8 @@ export async function pullAllFromSupabase(): Promise<{
       gender: s.gender || 'L',
       classId: s.class_id,
       className: s.class_name,
+      birthDate: s.birth_date || undefined,
+      address: s.address || undefined,
       parentName: s.parent_name || '',
       parentPhone: s.parent_phone || '',
       photoUrl: s.photo_url || '',
@@ -693,6 +701,30 @@ export async function deleteClassFromSupabase(id: string) {
     }
   } catch (err) {
     console.error('Error deleting class from Supabase:', err);
+  }
+}
+
+export async function upsertStudentToSupabase(student: Student) {
+  const supabase = getSupabaseClient();
+  if (!supabase) return;
+  try {
+    const payload = {
+      id: student.id,
+      nisn: student.nisn,
+      name: student.name,
+      gender: student.gender || 'L',
+      class_id: student.classId,
+      class_name: student.className,
+      birth_date: student.birthDate || null,
+      address: student.address || null,
+      parent_name: student.parentName || '',
+      parent_phone: student.parentPhone || '',
+      photo_url: student.photoUrl || '',
+      default_password: student.defaultPassword || '123'
+    };
+    await supabase.from('students').upsert(payload, { onConflict: 'id' });
+  } catch (err) {
+    console.error('Error upserting student to Supabase:', err);
   }
 }
 

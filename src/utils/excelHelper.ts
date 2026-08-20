@@ -170,35 +170,47 @@ export const exportAttendanceToExcel = (
 export const downloadStudentTemplate = () => {
   const templateData = [
     {
+      'No': 1,
       'NISN': '0061234599',
-      'Nama Siswa': 'Contoh Siswa Baru',
-      'Jenis Kelamin (L/P)': 'L',
-      'Nama Kelas': 'X MIPA 1',
-      'Nama Wali Murid': 'H. Ahmad',
-      'No HP Wali': '081234567899'
+      'Nama Lengkap Siswa': 'Ahmad Fauzi Ridwan',
+      'Kelas / Rombel': 'X MIPA 1',
+      'Jenis Kelamin': 'Laki-laki (L)',
+      'Tanggal Lahir': '2007-05-14',
+      'Nama Orang Tua / Wali': 'H. Ridwan Mansyur',
+      'No WhatsApp Wali': '081234567890',
+      'Alamat Tempat Tinggal': 'Jl. Raya Besuki No. 12',
+      'Tahun Ajaran': '2024/2025'
     },
     {
+      'No': 2,
       'NISN': '0061234598',
-      'Nama Siswa': 'Contoh Siswi Baru',
-      'Jenis Kelamin (L/P)': 'P',
-      'Nama Kelas': 'XI MIPA 1',
-      'Nama Wali Murid': 'Hj. Fatimah',
-      'No HP Wali': '081234567898'
+      'Nama Lengkap Siswa': 'Siti Nurhaliza',
+      'Kelas / Rombel': 'X MIPA 1',
+      'Jenis Kelamin': 'Perempuan (P)',
+      'Tanggal Lahir': '2007-09-22',
+      'Nama Orang Tua / Wali': 'Hj. Fatimah Zahra',
+      'No WhatsApp Wali': '081298765432',
+      'Alamat Tempat Tinggal': 'Dsn. Krajan RT 02 RW 01',
+      'Tahun Ajaran': '2024/2025'
     }
   ];
 
   const worksheet = XLSX.utils.json_to_sheet(templateData);
   worksheet['!cols'] = [
-    { wch: 15 },
-    { wch: 25 },
-    { wch: 20 },
-    { wch: 15 },
-    { wch: 22 },
-    { wch: 16 }
+    { wch: 6 },  // No
+    { wch: 18 }, // NISN
+    { wch: 30 }, // Nama Lengkap Siswa
+    { wch: 16 }, // Kelas / Rombel
+    { wch: 18 }, // Jenis Kelamin
+    { wch: 16 }, // Tanggal Lahir
+    { wch: 28 }, // Nama Orang Tua / Wali
+    { wch: 20 }, // No WhatsApp Wali
+    { wch: 36 }, // Alamat Tempat Tinggal
+    { wch: 16 }  // Tahun Ajaran
   ];
 
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Template Siswa');
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Data Siswa Backup');
   XLSX.writeFile(workbook, 'Template_Import_Siswa_SMA_Islam_Raiyatul_Husnan.xlsx');
 };
 
@@ -233,10 +245,20 @@ export const parseExcelFile = (file: File): Promise<any[]> => {
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet);
+        const workbook = XLSX.read(data, { type: 'array', cellDates: false });
+        
+        // Priority: target 'Data Siswa Backup', 'Template Siswa', 'Master Siswa', or first sheet
+        let targetSheetName = workbook.SheetNames[0];
+        for (const sName of workbook.SheetNames) {
+          const lower = sName.toLowerCase();
+          if (lower.includes('siswa') || lower.includes('student') || lower.includes('data')) {
+            targetSheetName = sName;
+            break;
+          }
+        }
+        
+        const worksheet = workbook.Sheets[targetSheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet, { raw: false, defval: '' });
         resolve(json);
       } catch (err) {
         reject(err);

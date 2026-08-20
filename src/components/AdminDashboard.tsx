@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Student, Teacher, ClassRoom, AttendanceRecord, AttendanceStatus } from '../types';
 import { apiService } from '../services/apiService';
 import { exportAttendanceToExcel, downloadStudentTemplate, downloadTeacherTemplate, parseExcelFile } from '../utils/excelHelper';
+import { exportStudentsToStructuredExcel } from '../utils/studentExportHelper';
 import { findMatchingClass } from '../utils/dataSync';
 import { NISNBarcode } from './NISNBarcode';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
@@ -88,6 +89,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Filters for Report & Export
   const [reportsSubTab, setReportsSubTab] = useState<'daily' | 'monthly' | 'kbm'>('daily');
   const [reportClassFilter, setReportClassFilter] = useState('all');
+  const [backupClassFilter, setBackupClassFilter] = useState('all');
   const [reportStartDate, setReportStartDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
@@ -115,6 +117,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     name: '',
     gender: 'L' as 'L' | 'P',
     classId: classes[0]?.id || '',
+    birthDate: '',
+    address: '',
     parentName: '',
     parentPhone: '',
     photoUrl: ''
@@ -405,6 +409,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       name: st.name,
       gender: st.gender,
       classId: st.classId,
+      birthDate: st.birthDate || '',
+      address: st.address || '',
       parentName: st.parentName,
       parentPhone: st.parentPhone,
       photoUrl: st.photoUrl || ''
@@ -420,6 +426,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       name: '',
       gender: 'L',
       classId: classes[0]?.id || '',
+      birthDate: '',
+      address: '',
       parentName: '',
       parentPhone: '',
       photoUrl: ''
@@ -593,6 +601,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return '';
   };
 
+  // Helper to parse dates from various Excel formats
+  const parseDateString = (raw: any): string => {
+    if (!raw) return '';
+    const str = String(raw).trim();
+    if (str === '-' || str === 'null' || str === 'undefined' || str === '') return '';
+    
+    // Check if it's already YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+      return str;
+    }
+    
+    // Check DD/MM/YYYY or DD-MM-YYYY
+    const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (dmyMatch) {
+      const day = dmyMatch[1].padStart(2, '0');
+      const month = dmyMatch[2].padStart(2, '0');
+      const year = dmyMatch[3];
+      return `${year}-${month}-${day}`;
+    }
+
+    // Check Excel numeric serial date (e.g. 39216)
+    const num = Number(str);
+    if (!isNaN(num) && num > 10000 && num < 80000) {
+      const date = new Date(Math.round((num - 25569) * 86400 * 1000));
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0];
+      }
+    }
+
+    // Try standard Date parsing
+    const parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString().split('T')[0];
+    }
+
+    return str;
+  };
+
   const handleExecuteImport = async () => {
     if (importPreviewData.length === 0) return;
     setImportLoading(true);
@@ -600,19 +646,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (importType === 'siswa') {
       const formatted = importPreviewData.map(row => {
         const nisnVal = getRowValue(row, ['NISN', 'nisn', 'Nis', 'NIS', 'No Induk']);
-        const nameVal = getRowValue(row, ['Nama Siswa', 'Nama', 'name', 'Nama Lengkap', 'Siswa', 'Nama_Siswa']);
-        const genderVal = getRowValue(row, ['Jenis Kelamin (L/P)', 'Jenis Kelamin', 'JK', 'L/P', 'Gender', 'gender']);
-        const classVal = getRowValue(row, ['Nama Kelas', 'Kelas', 'Rombel', 'Class', 'className', 'Nama_Kelas', 'nama_kelas', 'Rombongan Belajar']);
-        const parentNameVal = getRowValue(row, ['Nama Wali Murid', 'Nama Wali', 'Wali', 'Nama Orang Tua', 'parentName', 'Wali Murid']);
-        const parentPhoneVal = getRowValue(row, ['No HP Wali', 'No HP', 'No. HP', 'HP Wali', 'No WhatsApp', 'parentPhone', 'Telepon']);
+        const nameVal = getRowValue(row, ['Nama Lengkap Siswa', 'Nama Siswa', 'Nama', 'name', 'Nama Lengkap', 'Siswa', 'Nama_Siswa']);
+        const genderVal = getRowValue(row, ['Jenis Kelamin', 'Jenis Kelamin (L/P)', 'JK', 'L/P', 'Gender', 'gender']);
+        const classVal = getRowValue(row, ['Kelas / Rombel', 'Nama Kelas', 'Kelas', 'Rombel', 'Class', 'className', 'Nama_Kelas', 'nama_kelas', 'Rombongan Belajar']);
+        const birthDateVal = parseDateString(getRowValue(row, ['Tanggal Lahir', 'Tgl Lahir', 'birthDate', 'Birth Date', 'Tanggal_Lahir', 'Tgl_Lahir', 'TglLahir']));
+        const parentNameVal = getRowValue(row, ['Nama Orang Tua / Wali', 'Nama Wali Murid', 'Nama Wali', 'Wali', 'Nama Orang Tua', 'parentName', 'Wali Murid', 'Orang Tua']);
+        const parentPhoneVal = getRowValue(row, ['No WhatsApp Wali', 'No HP Wali', 'No HP', 'No. HP', 'HP Wali', 'No WhatsApp', 'parentPhone', 'Telepon', 'No WA']);
+        const addressVal = getRowValue(row, ['Alamat Tempat Tinggal', 'Alamat', 'address', 'Tempat Tinggal', 'Alamat Siswa']);
+        const academicYearVal = getRowValue(row, ['Tahun Ajaran', 'Tahun Pelajaran', 'academicYear', 'TP']);
+        const idVal = getRowValue(row, ['ID Sistem', 'ID', 'id', 'idSistem']);
 
         return {
+          id: idVal || undefined,
           nisn: nisnVal,
           name: nameVal,
           gender: genderVal.toUpperCase().startsWith('P') ? 'P' : 'L',
           className: classVal,
+          birthDate: birthDateVal || undefined,
           parentName: parentNameVal || 'Wali Murid',
-          parentPhone: parentPhoneVal || '-'
+          parentPhone: parentPhoneVal || '-',
+          address: addressVal || undefined,
+          academicYear: academicYearVal || '2024/2025'
         };
       });
 
@@ -847,6 +901,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                 {masterSubTab === 'students' && (
                   <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => exportStudentsToStructuredExcel({ students, classes, targetClass: masterClassFilter })}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-800 hover:bg-emerald-900 text-white rounded-xl text-xs font-extrabold shadow-sm cursor-pointer transition-all border border-emerald-700"
+                      title="Export & Backup Data Siswa Lengkap (.xlsx)"
+                    >
+                      <Download className="w-4 h-4 text-amber-300" />
+                      Export Data Siswa (.xlsx)
+                    </button>
                     <button
                       onClick={() => {
                         setSingleQRCodeStudent(null);
@@ -1849,6 +1911,97 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {/* TAB 4: DATABASE SUPABASE CLOUD & IMPORT DATA */}
           {activeTab === 'import' && (
             <div className="space-y-6 max-w-4xl mx-auto">
+              {/* Export & Backup Data Siswa (.xlsx) Section */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 shadow-2xs">
+                      <Download className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-extrabold text-slate-900">
+                        Export & Backup Data Siswa (.xlsx)
+                      </h3>
+                      <p className="text-xs text-slate-600 mt-0.5 max-w-2xl leading-relaxed">
+                        Unduh seluruh data siswa (NISN 10 digit, Tanggal Lahir, Nama Orang Tua, Kontak WhatsApp, dan Rombel) dalam format Microsoft Excel <strong>.xlsx</strong> terstruktur sebagai salinan cadangan keamanan database sekolah.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Backup Action Controls */}
+                  <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={backupClassFilter}
+                        onChange={(e) => setBackupClassFilter(e.target.value)}
+                        className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-1 focus:ring-emerald-700 shadow-2xs cursor-pointer"
+                        title="Pilih Lingkup Kelas untuk di-backup"
+                      >
+                        <option value="all">Semua Rombel ({students.length} Siswa)</option>
+                        {classes.map(c => (
+                          <option key={c.id} value={c.name}>
+                            Kelas {c.name} ({students.filter(s => s.className === c.name || s.classId === c.id).length} Siswa)
+                          </option>
+                        ))}
+                      </select>
+
+                      <button
+                        type="button"
+                        onClick={() => exportStudentsToStructuredExcel({ students, classes, targetClass: backupClassFilter })}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white font-extrabold rounded-xl text-xs shadow-md hover:shadow-emerald-900/20 transition-all active:scale-95 cursor-pointer"
+                      >
+                        <Download className="w-4 h-4 text-amber-300" />
+                        <span>Export Backup Siswa (.xlsx)</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Backup Statistics Badges */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <span className="text-[11px] font-bold text-slate-500 block">Total Siswa</span>
+                    <span className="text-lg font-black text-emerald-800">{students.length} Data</span>
+                    <span className="text-[10px] text-emerald-700 block mt-0.5">Siap di-export</span>
+                  </div>
+
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <span className="text-[11px] font-bold text-slate-500 block">Tanggal Lahir</span>
+                    <span className="text-lg font-black text-slate-800">
+                      {students.filter(s => s.birthDate).length} / {students.length}
+                    </span>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">Terdata lengkap</span>
+                  </div>
+
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <span className="text-[11px] font-bold text-slate-500 block">Kontak WhatsApp</span>
+                    <span className="text-lg font-black text-slate-800">
+                      {students.filter(s => s.parentPhone && s.parentPhone !== '-').length} Siswa
+                    </span>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">Nomor wali aktif</span>
+                  </div>
+
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between">
+                    <span className="text-[11px] font-bold text-slate-500 block">Multi-Sheet Master</span>
+                    <button
+                      type="button"
+                      onClick={() => exportStudentsToStructuredExcel({ students, classes, targetClass: 'all' })}
+                      className="text-left font-bold text-[11px] text-emerald-800 hover:text-emerald-950 underline underline-offset-2 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Unduh Semua ({students.length} Siswa)</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-[11px] text-emerald-900 bg-emerald-50/80 px-3.5 py-2 rounded-xl border border-emerald-200">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <span>
+                    File cadangan <strong>.xlsx</strong> dilengkapi lembar verifikasi sekolah, tanggal cetak, dan format kolom standar yang siap diimpor kembali kapan saja.
+                  </span>
+                </div>
+              </div>
+
               {/* Primary Supabase Cloud Database Integration */}
               <SupabaseManager onRefreshMasterData={onRefreshData} />
 
@@ -1894,22 +2047,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <span className="text-xs text-slate-700 font-semibold">
-                  1. Unduh Format Template Excel Official:
-                </span>
+                <div>
+                  <span className="text-xs text-slate-800 font-bold block">
+                    1. Format File Excel Terstandarisasi:
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    Mendukung berkas <strong>Backup Data Siswa (.xlsx)</strong> resmi maupun format template input massal.
+                  </span>
+                </div>
                 {importType === 'siswa' ? (
                   <button
                     onClick={downloadStudentTemplate}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg text-xs font-bold text-slate-700 cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg text-xs font-bold text-slate-700 cursor-pointer shadow-2xs"
                   >
-                    <Download className="w-3.5 h-3.5 text-emerald-600" /> Template Siswa.xlsx
+                    <Download className="w-3.5 h-3.5 text-emerald-600" /> Unduh Template Siswa.xlsx
                   </button>
                 ) : (
                   <button
                     onClick={downloadTeacherTemplate}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg text-xs font-bold text-slate-700 cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg text-xs font-bold text-slate-700 cursor-pointer shadow-2xs"
                   >
-                    <Download className="w-3.5 h-3.5 text-emerald-600" /> Template Guru.xlsx
+                    <Download className="w-3.5 h-3.5 text-emerald-600" /> Unduh Template Guru.xlsx
                   </button>
                 )}
               </div>
@@ -1917,8 +2075,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {/* File Uploader */}
               <div className="border-2 border-dashed border-slate-300 hover:border-emerald-500 rounded-2xl p-6 text-center bg-slate-50/50 transition-colors">
                 <Upload className="w-10 h-10 text-slate-400 mx-auto mb-2" />
-                <h4 className="font-bold text-slate-800 text-sm mb-1">Upload File Excel / CSV</h4>
-                <p className="text-xs text-slate-500 mb-4">Pilih file berformat .xlsx atau .csv sesuai template di atas</p>
+                <h4 className="font-bold text-slate-800 text-sm mb-1">Upload File Excel / CSV / Backup</h4>
+                <p className="text-xs text-slate-500 mb-4">Pilih file berformat .xlsx atau .csv (File Backup Master Siswa atau Template)</p>
 
                 <input
                   type="file"
@@ -1948,9 +2106,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {importPreviewData.length > 0 && (
                 <div className="space-y-3 pt-2">
                   <div className="flex justify-between items-center">
-                    <h4 className="font-bold text-slate-800 text-sm">
-                      Pratinjau Data File ({importPreviewData.length} Baris):
-                    </h4>
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-sm">
+                        Pratinjau Data File ({importPreviewData.length} Baris):
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Kolom NISN, Nama, Kelas, Tanggal Lahir, Nama Wali, No WhatsApp & Alamat diselaraskan otomatis.
+                      </p>
+                    </div>
                     <button
                       onClick={handleExecuteImport}
                       disabled={importLoading}
@@ -1961,18 +2124,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </button>
                   </div>
 
-                  <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-xl">
-                    <table className="w-full text-left text-xs text-slate-700">
+                  <div className="max-h-72 overflow-y-auto border border-slate-200 rounded-xl overflow-x-auto">
+                    <table className="w-full text-left text-xs text-slate-700 whitespace-nowrap">
                       <thead className="bg-slate-100 font-bold sticky top-0">
                         {importType === 'siswa' ? (
                           <tr>
                             <th className="p-2.5 border-b border-slate-200">No</th>
                             <th className="p-2.5 border-b border-slate-200">NISN</th>
-                            <th className="p-2.5 border-b border-slate-200">Nama Siswa</th>
-                            <th className="p-2.5 border-b border-slate-200">L/P</th>
+                            <th className="p-2.5 border-b border-slate-200">Nama Lengkap Siswa</th>
                             <th className="p-2.5 border-b border-slate-200">Kelas di File</th>
                             <th className="p-2.5 border-b border-slate-200">Koneksi Kelas Sistem</th>
-                            <th className="p-2.5 border-b border-slate-200">Wali Murid</th>
+                            <th className="p-2.5 border-b border-slate-200">L/P</th>
+                            <th className="p-2.5 border-b border-slate-200">Tanggal Lahir</th>
+                            <th className="p-2.5 border-b border-slate-200">Nama Orang Tua / Wali</th>
+                            <th className="p-2.5 border-b border-slate-200">No WA Wali</th>
+                            <th className="p-2.5 border-b border-slate-200">Alamat</th>
                           </tr>
                         ) : (
                           <tr>
@@ -1985,19 +2151,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <tbody>
                         {importType === 'siswa' ? (
                           importPreviewData.map((row, idx) => {
-                            const rawClassName = getRowValue(row, ['Nama Kelas', 'Kelas', 'Rombel', 'Class', 'className', 'Nama_Kelas', 'nama_kelas']);
+                            const rawClassName = getRowValue(row, ['Kelas / Rombel', 'Nama Kelas', 'Kelas', 'Rombel', 'Class', 'className', 'Nama_Kelas', 'nama_kelas', 'Rombongan Belajar']);
                             const matched = findMatchingClass(rawClassName, undefined, classes);
-                            const studentName = getRowValue(row, ['Nama Siswa', 'Nama', 'name', 'Nama Lengkap', 'Siswa']);
-                            const nisnVal = getRowValue(row, ['NISN', 'nisn', 'Nis', 'NIS']);
-                            const genderVal = getRowValue(row, ['Jenis Kelamin (L/P)', 'Jenis Kelamin', 'JK', 'L/P', 'gender']);
-                            const parentName = getRowValue(row, ['Nama Wali Murid', 'Nama Wali', 'Wali', 'parentName']);
+                            const studentName = getRowValue(row, ['Nama Lengkap Siswa', 'Nama Siswa', 'Nama', 'name', 'Nama Lengkap', 'Siswa']);
+                            const nisnVal = getRowValue(row, ['NISN', 'nisn', 'Nis', 'NIS', 'No Induk']);
+                            const genderVal = getRowValue(row, ['Jenis Kelamin', 'Jenis Kelamin (L/P)', 'JK', 'L/P', 'gender']);
+                            const birthDateVal = parseDateString(getRowValue(row, ['Tanggal Lahir', 'Tgl Lahir', 'birthDate', 'Birth Date', 'Tanggal_Lahir']));
+                            const parentName = getRowValue(row, ['Nama Orang Tua / Wali', 'Nama Wali Murid', 'Nama Wali', 'Wali', 'parentName']);
+                            const parentPhone = getRowValue(row, ['No WhatsApp Wali', 'No HP Wali', 'No HP', 'No. HP', 'parentPhone', 'No WA']);
+                            const addressVal = getRowValue(row, ['Alamat Tempat Tinggal', 'Alamat', 'address']);
 
                             return (
                               <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50">
                                 <td className="p-2.5 font-bold text-slate-400">{idx + 1}</td>
                                 <td className="p-2.5 font-mono font-bold text-slate-800">{nisnVal || '-'}</td>
                                 <td className="p-2.5 font-bold text-emerald-900">{studentName || '-'}</td>
-                                <td className="p-2.5 font-bold">{genderVal.toUpperCase().startsWith('P') ? 'P' : 'L'}</td>
                                 <td className="p-2.5 font-semibold text-slate-700">{rawClassName || '(Tanpa Kelas)'}</td>
                                 <td className="p-2.5">
                                   {matched ? (
@@ -2016,7 +2184,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                     </span>
                                   )}
                                 </td>
-                                <td className="p-2.5 text-slate-600">{parentName || '-'}</td>
+                                <td className="p-2.5 font-bold">{genderVal.toUpperCase().startsWith('P') ? 'P' : 'L'}</td>
+                                <td className="p-2.5 font-mono text-[11px] text-slate-700">
+                                  {birthDateVal ? (
+                                    <span className="px-2 py-0.5 bg-slate-100 rounded-md font-semibold border border-slate-200">{birthDateVal}</span>
+                                  ) : (
+                                    <span className="text-slate-400 italic">-</span>
+                                  )}
+                                </td>
+                                <td className="p-2.5 text-slate-700">{parentName || '-'}</td>
+                                <td className="p-2.5 font-mono text-slate-600">{parentPhone || '-'}</td>
+                                <td className="p-2.5 text-slate-600 max-w-xs truncate" title={addressVal || ''}>{addressVal || '-'}</td>
                               </tr>
                             );
                           })
@@ -2226,6 +2404,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Tanggal Lahir Siswa</label>
+                <input
+                  type="date"
+                  value={studentForm.birthDate}
+                  onChange={(e) => setStudentForm({ ...studentForm, birthDate: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg font-mono bg-white text-slate-900"
+                  title="Pilih tanggal lahir siswa"
+                />
+                <p className="text-[10px] text-slate-400 mt-0.5">Tersimpan ke database Supabase Cloud & digunakan login wali murid</p>
               </div>
 
               <div>
