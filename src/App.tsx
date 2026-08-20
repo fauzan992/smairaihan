@@ -183,6 +183,7 @@ export default function App() {
                   user={user}
                   students={students}
                   attendanceRecords={attendanceRecords}
+                  onRefreshData={loadAppData}
                 />
               )}
             </div>

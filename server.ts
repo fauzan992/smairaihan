@@ -135,16 +135,24 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 async function startServer() {
 
-  // Helper for current date in YYYY-MM-DD
+  // Helper for current date in YYYY-MM-DD (Asia/Jakarta / WIB)
   const getTodayStr = () => {
-    const d = new Date();
-    return d.toISOString().split('T')[0];
+    try {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    } catch {
+      const d = new Date();
+      return d.toISOString().split('T')[0];
+    }
   };
 
-  // Helper for current time in HH:mm:ss
+  // Helper for current time in HH:mm:ss (Asia/Jakarta / WIB)
   const getTimeStr = () => {
-    const d = new Date();
-    return d.toTimeString().split(' ')[0];
+    try {
+      return new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date()).replace(/\./g, ':');
+    } catch {
+      const d = new Date();
+      return d.toTimeString().split(' ')[0];
+    }
   };
 
   // Helper: Check if date is a holiday (routine or custom)
