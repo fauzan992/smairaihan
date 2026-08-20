@@ -149,6 +149,9 @@ export async function pushAllFromBrowser(url: string, anonKey: string, localData
       gender: s.gender || 'L',
       class_id: s.classId,
       class_name: s.className,
+      birth_date: s.birthDate || null,
+      address: s.address || null,
+      academic_year: s.academicYear || '2024/2025',
       parent_name: s.parentName || null,
       parent_phone: s.parentPhone || null,
       photo_url: s.photoUrl || null,
@@ -156,10 +159,10 @@ export async function pushAllFromBrowser(url: string, anonKey: string, localData
     }));
     if (studentsData.length > 0) {
       let { error: errStudents } = await supabase.from('students').upsert(studentsData, { onConflict: 'id' });
-      if (errStudents && errStudents.message && errStudents.message.includes('photo_url')) {
-        console.warn('Supabase students table missing photo_url column. Retrying without photo_url...');
-        const studentsDataNoPhoto = studentsData.map(({ photo_url, ...rest }) => rest);
-        const retryRes = await supabase.from('students').upsert(studentsDataNoPhoto, { onConflict: 'id' });
+      if (errStudents && errStudents.message && (errStudents.message.includes('photo_url') || errStudents.message.includes('birth_date') || errStudents.message.includes('academic_year'))) {
+        console.warn('Supabase students table schema mismatch. Retrying with basic fields...');
+        const studentsDataBasic = studentsData.map(({ photo_url, academic_year, ...rest }) => rest);
+        const retryRes = await supabase.from('students').upsert(studentsDataBasic, { onConflict: 'id' });
         errStudents = retryRes.error;
       }
       if (errStudents) throw new Error(`Tabel students: ${errStudents.message}`);
@@ -349,6 +352,9 @@ export async function pullAllFromBrowser(url: string, anonKey: string): Promise<
       gender: s.gender || 'L',
       classId: s.class_id,
       className: s.class_name,
+      birthDate: s.birth_date || s.birthDate || undefined,
+      address: s.address || undefined,
+      academicYear: s.academic_year || s.academicYear || '2024/2025',
       parentName: s.parent_name || undefined,
       parentPhone: s.parent_phone || undefined,
       photoUrl: s.photo_url || undefined,
@@ -425,6 +431,36 @@ export async function deleteStudentFromBrowserSupabase(id: string, nisn?: string
     if (nisn) await supabase.from('students').delete().eq('nisn', nisn);
   } catch (e) {
     console.warn('Error deleting student from Supabase browser client:', e);
+  }
+}
+
+export async function upsertStudentToBrowserSupabase(student: Student) {
+  const supabase = getBrowserSupabaseClient();
+  if (!supabase) return;
+  try {
+    const payload: any = {
+      id: student.id,
+      nisn: student.nisn,
+      name: student.name,
+      gender: student.gender || 'L',
+      class_id: student.classId,
+      class_name: student.className,
+      birth_date: student.birthDate || null,
+      address: student.address || null,
+      academic_year: student.academicYear || '2024/2025',
+      parent_name: student.parentName || null,
+      parent_phone: student.parentPhone || null,
+      photo_url: student.photoUrl || null,
+      default_password: student.defaultPassword || '123'
+    };
+
+    let { error } = await supabase.from('students').upsert(payload, { onConflict: 'id' });
+    if (error && error.message && (error.message.includes('photo_url') || error.message.includes('birth_date') || error.message.includes('academic_year'))) {
+      const { photo_url, academic_year, ...basicPayload } = payload;
+      await supabase.from('students').upsert(basicPayload, { onConflict: 'id' });
+    }
+  } catch (e) {
+    console.warn('Error upserting student to Supabase browser client:', e);
   }
 }
 

@@ -23,9 +23,11 @@ import {
   deleteClassFromSupabase,
   deleteStudentFromSupabase,
   upsertStudentToSupabase,
+  getSupabaseClient,
   SUPABASE_SQL_SCHEMA
 } from './src/services/supabaseService';
 import { syncClassesAndStudentsData, findMatchingClass, inferGradeLevel } from './src/utils/dataSync';
+import { normalizeDateToYMD, isStudentNameMatch, isStudentBirthDateMatch } from './src/utils/studentAuthHelper';
 
 // In-memory data store for the application
 let classesDB: ClassRoom[] = [...INITIAL_CLASSES];
@@ -302,6 +304,17 @@ async function startServer() {
         });
       }
 
+      // 3. Fallback: check persistent backup or Supabase if not in studentsDB
+      if (!student) {
+        const backup = readLocalDBBackup();
+        if (backup && backup.students) {
+          student = backup.students.find(s => s.nisn === trimmedUsername || ((s.parentPhone || '').replace(/\D/g, '') === cleanInput && cleanInput.length >= 8));
+          if (student && !studentsDB.some(s => s.id === student!.id)) {
+            studentsDB.push(student);
+          }
+        }
+      }
+
       if (student) {
         const waliUser: User = {
           id: `wali-${student.id}`,
@@ -381,73 +394,92 @@ async function startServer() {
     return res.status(401).json({ error: 'Username/NIP atau password yang Anda masukkan salah.' });
   });
 
-  // Helper to normalize dates for comparison
-  function normalizeDateToYMD(dateStr?: string): string {
-    if (!dateStr) return '';
-    const str = String(dateStr).trim();
-    if (!str || str === '-' || str === 'null' || str === 'undefined') return '';
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-    const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-    if (dmyMatch) {
-      const day = dmyMatch[1].padStart(2, '0');
-      const month = dmyMatch[2].padStart(2, '0');
-      const year = dmyMatch[3];
-      return `${year}-${month}-${day}`;
-    }
-    const parsed = new Date(str);
-    if (!isNaN(parsed.getTime())) {
-      return parsed.toISOString().split('T')[0];
-    }
-    return str;
-  }
-
   // Secure Wali Murid Verification Endpoint (Verification by Student Name & Birth Date)
-  app.post('/api/auth/wali/verify', (req, res) => {
+  app.post('/api/auth/wali/verify', async (req, res) => {
     const { studentName, birthDate, parentPhone } = req.body;
 
     if (!studentName || (!birthDate && !parentPhone)) {
       return res.status(400).json({ error: 'Nama Lengkap Siswa dan Tanggal Lahir wajib diisi.' });
     }
 
-    const cleanInputName = (studentName || '').trim().toLowerCase();
-    const cleanInputBirthDate = normalizeDateToYMD(birthDate);
     const cleanInputPhone = parentPhone ? String(parentPhone).replace(/\D/g, '') : '';
 
-    if (cleanInputName.length < 3) {
-      return res.status(400).json({ error: 'Masukkan minimal 3 karakter nama siswa.' });
+    const performMatch = (studentsList: Student[]): Student | undefined => {
+      return studentsList.find(s => {
+        // Name matching using flexible helper
+        const nameMatches = isStudentNameMatch(s.name, studentName);
+        if (!nameMatches) return false;
+
+        // Birth date matching
+        if (birthDate) {
+          if (isStudentBirthDateMatch(s.birthDate, birthDate)) {
+            return true;
+          }
+        }
+
+        // Optional phone fallback if provided
+        if (cleanInputPhone && cleanInputPhone.length >= 4) {
+          const sPhoneClean = (s.parentPhone || '').replace(/\D/g, '');
+          if (sPhoneClean) {
+            const phoneMatches = sPhoneClean === cleanInputPhone ||
+                                 sPhoneClean.endsWith(cleanInputPhone) ||
+                                 cleanInputPhone.endsWith(sPhoneClean) ||
+                                 (cleanInputPhone.startsWith('0') && sPhoneClean === '62' + cleanInputPhone.slice(1)) ||
+                                 (cleanInputPhone.startsWith('62') && sPhoneClean === '0' + cleanInputPhone.slice(2));
+            if (phoneMatches) return true;
+          }
+        }
+
+        return false;
+      });
+    };
+
+    // 1. Search in current in-memory studentsDB
+    let matched = performMatch(studentsDB);
+
+    // 2. If not found, check local file backup
+    if (!matched) {
+      const backup = readLocalDBBackup();
+      if (backup && backup.students && backup.students.length > 0) {
+        matched = performMatch(backup.students);
+        if (matched && !studentsDB.some(s => s.id === matched!.id)) {
+          studentsDB.push(matched);
+        }
+      }
     }
 
-    // Search for match across all students (no class selection needed)
-    const matched = studentsDB.find(s => {
-      const sName = (s.name || '').trim().toLowerCase();
-
-      // Name matching (contains or exact)
-      const nameMatches = sName === cleanInputName || sName.includes(cleanInputName) || cleanInputName.includes(sName);
-      if (!nameMatches) return false;
-
-      // Birth date matching
-      if (cleanInputBirthDate) {
-        const sBirthDate = normalizeDateToYMD(s.birthDate);
-        if (sBirthDate && sBirthDate === cleanInputBirthDate) {
-          return true;
+    // 3. If still not found, check Supabase directly if connected
+    if (!matched) {
+      try {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          const { data: supaStudents } = await supabase.from('students').select('*');
+          if (supaStudents && supaStudents.length > 0) {
+            const mappedSupa: Student[] = supaStudents.map((s: any) => ({
+              id: s.id,
+              nisn: s.nisn,
+              name: s.name,
+              gender: s.gender || 'L',
+              classId: s.class_id,
+              className: s.class_name,
+              birthDate: s.birth_date || s.birthDate || undefined,
+              address: s.address || undefined,
+              academicYear: s.academic_year || s.academicYear || '2024/2025',
+              parentName: s.parent_name || undefined,
+              parentPhone: s.parent_phone || undefined,
+              photoUrl: s.photo_url || undefined,
+              defaultPassword: s.default_password || '123'
+            }));
+            matched = performMatch(mappedSupa);
+            if (matched && !studentsDB.some(s => s.id === matched!.id)) {
+              studentsDB.push(matched);
+            }
+          }
         }
+      } catch (err) {
+        console.warn('Supabase verify lookup fallback error:', err);
       }
-
-      // Optional phone fallback if provided
-      if (cleanInputPhone && cleanInputPhone.length >= 4) {
-        const sPhoneClean = (s.parentPhone || '').replace(/\D/g, '');
-        if (sPhoneClean) {
-          const phoneMatches = sPhoneClean === cleanInputPhone ||
-                               sPhoneClean.endsWith(cleanInputPhone) ||
-                               cleanInputPhone.endsWith(sPhoneClean) ||
-                               (cleanInputPhone.startsWith('0') && sPhoneClean === '62' + cleanInputPhone.slice(1)) ||
-                               (cleanInputPhone.startsWith('62') && sPhoneClean === '0' + cleanInputPhone.slice(2));
-          if (phoneMatches) return true;
-        }
-      }
-
-      return false;
-    });
+    }
 
     if (matched) {
       const waliUser: User = {

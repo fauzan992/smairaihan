@@ -2,6 +2,7 @@ import { User, Student, Teacher, ClassRoom, AttendanceRecord, AttendanceStatus, 
 import { INITIAL_CLASSES, INITIAL_TEACHERS, INITIAL_STUDENTS, generateInitialAttendance, INITIAL_BK_NOTES, generateInitialKBMJournals } from '../data/mockDatabase';
 import { getStoredSupabaseConfig, pushAllFromBrowser, pullAllFromBrowser, getBrowserSupabaseClient, deleteTeacherFromBrowserSupabase, deleteClassFromBrowserSupabase, deleteStudentFromBrowserSupabase, upsertTeacherToBrowserSupabase, upsertSettingsToBrowserSupabase } from './clientSupabase';
 import { syncClassesAndStudentsData } from '../utils/dataSync';
+import { normalizeDateToYMD, isStudentNameMatch, isStudentBirthDateMatch } from '../utils/studentAuthHelper';
 
 // Safe JSON fetch wrapper that checks Content-Type to prevent HTML "Unexpected token T" errors on Vercel
 async function safeFetchJson<T = any>(url: string, options?: RequestInit): Promise<{ ok: boolean; status: number; data?: T; isHtml?: boolean; error?: string }> {
@@ -519,54 +520,74 @@ export const apiService = {
     }
 
     // Client fallback verification
-    const normalizeDateStr = (d?: string) => {
-      if (!d) return '';
-      const str = String(d).trim();
-      if (!str || str === '-' || str === 'null') return '';
-      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-      const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-      if (dmyMatch) {
-        return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
-      }
-      const parsed = new Date(str);
-      if (!isNaN(parsed.getTime())) {
-        return parsed.toISOString().split('T')[0];
-      }
-      return str;
+    const performClientMatch = (studentsList: Student[]): Student | undefined => {
+      const cleanInputPhone = (params.parentPhone || '').replace(/\D/g, '');
+      return studentsList.find(s => {
+        const nameMatches = isStudentNameMatch(s.name, params.studentName);
+        if (!nameMatches) return false;
+
+        // Match birth date
+        if (params.birthDate) {
+          if (isStudentBirthDateMatch(s.birthDate, params.birthDate)) {
+            return true;
+          }
+        }
+
+        // Match phone fallback
+        if (cleanInputPhone && cleanInputPhone.length >= 4) {
+          const sPhoneClean = (s.parentPhone || '').replace(/\D/g, '');
+          if (sPhoneClean) {
+            return sPhoneClean === cleanInputPhone ||
+                   sPhoneClean.endsWith(cleanInputPhone) ||
+                   cleanInputPhone.endsWith(sPhoneClean) ||
+                   (cleanInputPhone.startsWith('0') && sPhoneClean === '62' + cleanInputPhone.slice(1)) ||
+                   (cleanInputPhone.startsWith('62') && sPhoneClean === '0' + cleanInputPhone.slice(2));
+          }
+        }
+
+        return false;
+      });
     };
 
-    const students = getLocalStudents();
-    const cleanInputName = (params.studentName || '').trim().toLowerCase();
-    const cleanInputBirthDate = normalizeDateStr(params.birthDate);
-    const cleanInputPhone = (params.parentPhone || '').replace(/\D/g, '');
+    let students = getLocalStudents();
+    let matched = performClientMatch(students);
 
-    const matched = students.find(s => {
-      const sName = (s.name || '').trim().toLowerCase();
-      const nameMatches = sName === cleanInputName || sName.includes(cleanInputName) || cleanInputName.includes(sName);
-      if (!nameMatches) return false;
-
-      // Match birth date
-      if (cleanInputBirthDate) {
-        const sBirthDate = normalizeDateStr(s.birthDate);
-        if (sBirthDate && sBirthDate === cleanInputBirthDate) {
-          return true;
+    // If not found in localStorage, check browser Supabase client directly
+    if (!matched) {
+      try {
+        const supabase = getBrowserSupabaseClient();
+        if (supabase) {
+          const { data: supaStudents } = await supabase.from('students').select('*');
+          if (supaStudents && supaStudents.length > 0) {
+            const mappedSupa: Student[] = supaStudents.map((s: any) => ({
+              id: s.id,
+              nisn: s.nisn,
+              name: s.name,
+              gender: s.gender || 'L',
+              classId: s.class_id,
+              className: s.class_name,
+              birthDate: s.birth_date || s.birthDate || undefined,
+              address: s.address || undefined,
+              academicYear: s.academic_year || s.academicYear || '2024/2025',
+              parentName: s.parent_name || undefined,
+              parentPhone: s.parent_phone || undefined,
+              photoUrl: s.photo_url || undefined,
+              defaultPassword: s.default_password || '123'
+            }));
+            matched = performClientMatch(mappedSupa);
+            if (matched) {
+              // Cache into local storage
+              const currentLocal = getLocalStudents();
+              if (!currentLocal.some(cs => cs.id === matched!.id)) {
+                localStorage.setItem('app_master_students', JSON.stringify([...currentLocal, matched]));
+              }
+            }
+          }
         }
+      } catch (e) {
+        console.warn('Browser Supabase fallback error in verifyWaliStudent:', e);
       }
-
-      // Match phone fallback
-      if (cleanInputPhone && cleanInputPhone.length >= 4) {
-        const sPhoneClean = (s.parentPhone || '').replace(/\D/g, '');
-        if (sPhoneClean) {
-          return sPhoneClean === cleanInputPhone ||
-                 sPhoneClean.endsWith(cleanInputPhone) ||
-                 cleanInputPhone.endsWith(sPhoneClean) ||
-                 (cleanInputPhone.startsWith('0') && sPhoneClean === '62' + cleanInputPhone.slice(1)) ||
-                 (cleanInputPhone.startsWith('62') && sPhoneClean === '0' + cleanInputPhone.slice(2));
-        }
-      }
-
-      return false;
-    });
+    }
 
     if (matched) {
       const waliUser: User = {

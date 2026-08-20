@@ -53,24 +53,24 @@ export const INITIAL_BK_NOTES: BKNote[] = [
 ];
 
 export const INITIAL_STUDENTS: Student[] = [
-  { id: 'std-1', nisn: '0061234501', name: 'Muhammad Farhan', gender: 'L', classId: 'cls-1', className: 'X MIPA 1', parentName: 'H. Abdullah', parentPhone: '081234567890', defaultPassword: '123' },
-  { id: 'std-2', nisn: '0061234502', name: 'Aisyah Az-Zahra', gender: 'P', classId: 'cls-1', className: 'X MIPA 1', parentName: 'Hj. Mariam', parentPhone: '081234567891', defaultPassword: '123' },
-  { id: 'std-3', nisn: '0061234503', name: 'Ahmad Zaki Mubarak', gender: 'L', classId: 'cls-1', className: 'X MIPA 1', parentName: 'Drs. Sulaiman', parentPhone: '081234567892', defaultPassword: '123' },
-  { id: 'std-4', nisn: '0061234504', name: 'Nur Fatimah Syahira', gender: 'P', classId: 'cls-1', className: 'X MIPA 1', parentName: 'Ustadz Usman', parentPhone: '081234567893', defaultPassword: '123' },
-  { id: 'std-5', nisn: '0061234505', name: 'Bilal Ramadhan', gender: 'L', classId: 'cls-1', className: 'X MIPA 1', parentName: 'H. Mubarok', parentPhone: '081234567894', defaultPassword: '123' },
+  { id: 'std-1', nisn: '0061234501', name: 'Muhammad Farhan', gender: 'L', classId: 'cls-1', className: 'X MIPA 1', birthDate: '2008-04-12', academicYear: '2024/2025', parentName: 'H. Abdullah', parentPhone: '081234567890', defaultPassword: '123' },
+  { id: 'std-2', nisn: '0061234502', name: 'Aisyah Az-Zahra', gender: 'P', classId: 'cls-1', className: 'X MIPA 1', birthDate: '2008-08-25', academicYear: '2024/2025', parentName: 'Hj. Mariam', parentPhone: '081234567891', defaultPassword: '123' },
+  { id: 'std-3', nisn: '0061234503', name: 'Ahmad Zaki Mubarak', gender: 'L', classId: 'cls-1', className: 'X MIPA 1', birthDate: '2008-01-15', academicYear: '2024/2025', parentName: 'Drs. Sulaiman', parentPhone: '081234567892', defaultPassword: '123' },
+  { id: 'std-4', nisn: '0061234504', name: 'Nur Fatimah Syahira', gender: 'P', classId: 'cls-1', className: 'X MIPA 1', birthDate: '2008-11-03', academicYear: '2024/2025', parentName: 'Ustadz Usman', parentPhone: '081234567893', defaultPassword: '123' },
+  { id: 'std-5', nisn: '0061234505', name: 'Bilal Ramadhan', gender: 'L', classId: 'cls-1', className: 'X MIPA 1', birthDate: '2008-06-20', academicYear: '2024/2025', parentName: 'H. Mubarok', parentPhone: '081234567894', defaultPassword: '123' },
   
-  { id: 'std-6', nisn: '0061234506', name: 'Dewi Rahmawati', gender: 'P', classId: 'cls-2', className: 'X MIPA 2', parentName: 'Syamsul Bahri', parentPhone: '081234567895', defaultPassword: '123' },
-  { id: 'std-7', nisn: '0061234507', name: 'Fikri Haikal', gender: 'L', classId: 'cls-2', className: 'X MIPA 2', parentName: 'H. Hasanudin', parentPhone: '081234567896', defaultPassword: '123' },
-  { id: 'std-8', nisn: '0061234508', name: 'Khadijah Nabilah', gender: 'P', classId: 'cls-2', className: 'X MIPA 2', parentName: 'Ir. Iskandar', parentPhone: '081234567897', defaultPassword: '123' },
-  { id: 'std-9', nisn: '0061234509', name: 'Rizky Al-Fatih', gender: 'L', classId: 'cls-2', className: 'X MIPA 2', parentName: 'H. Subhan', parentPhone: '081234567898', defaultPassword: '123' },
+  { id: 'std-6', nisn: '0061234506', name: 'Dewi Rahmawati', gender: 'P', classId: 'cls-2', className: 'X MIPA 2', birthDate: '2008-03-10', academicYear: '2024/2025', parentName: 'Syamsul Bahri', parentPhone: '081234567895', defaultPassword: '123' },
+  { id: 'std-7', nisn: '0061234507', name: 'Fikri Haikal', gender: 'L', classId: 'cls-2', className: 'X MIPA 2', birthDate: '2008-07-19', academicYear: '2024/2025', parentName: 'H. Hasanudin', parentPhone: '081234567896', defaultPassword: '123' },
+  { id: 'std-8', nisn: '0061234508', name: 'Khadijah Nabilah', gender: 'P', classId: 'cls-2', className: 'X MIPA 2', birthDate: '2008-09-05', academicYear: '2024/2025', parentName: 'Ir. Iskandar', parentPhone: '081234567897', defaultPassword: '123' },
+  { id: 'std-9', nisn: '0061234509', name: 'Rizky Al-Fatih', gender: 'L', classId: 'cls-2', className: 'X MIPA 2', birthDate: '2008-12-30', academicYear: '2024/2025', parentName: 'H. Subhan', parentPhone: '081234567898', defaultPassword: '123' },
 
-  { id: 'std-10', nisn: '0061234510', name: 'Zahra Humaira', gender: 'P', classId: 'cls-3', className: 'XI MIPA 1', parentName: 'H. Faisal', parentPhone: '081234567899', defaultPassword: '123' },
-  { id: 'std-11', nisn: '0061234511', name: 'Omar Al-Mukhtar', gender: 'L', classId: 'cls-3', className: 'XI MIPA 1', parentName: 'Dr. Mukhtar', parentPhone: '081234567800', defaultPassword: '123' },
-  { id: 'std-12', nisn: '0061234512', name: 'Salma Salsabila', gender: 'P', classId: 'cls-3', className: 'XI MIPA 1', parentName: 'H. Thohir', parentPhone: '081234567801', defaultPassword: '123' },
-  { id: 'std-13', nisn: '0061234513', name: 'Rayhan Putra', gender: 'L', classId: 'cls-3', className: 'XI MIPA 1', parentName: 'H. Mulyadi', parentPhone: '081234567802', defaultPassword: '123' },
+  { id: 'std-10', nisn: '0061234510', name: 'Zahra Humaira', gender: 'P', classId: 'cls-3', className: 'XI MIPA 1', birthDate: '2007-02-14', academicYear: '2024/2025', parentName: 'H. Faisal', parentPhone: '081234567899', defaultPassword: '123' },
+  { id: 'std-11', nisn: '0061234511', name: 'Omar Al-Mukhtar', gender: 'L', classId: 'cls-3', className: 'XI MIPA 1', birthDate: '2007-05-22', academicYear: '2024/2025', parentName: 'Dr. Mukhtar', parentPhone: '081234567800', defaultPassword: '123' },
+  { id: 'std-12', nisn: '0061234512', name: 'Salma Salsabila', gender: 'P', classId: 'cls-3', className: 'XI MIPA 1', birthDate: '2007-10-18', academicYear: '2024/2025', parentName: 'H. Thohir', parentPhone: '081234567801', defaultPassword: '123' },
+  { id: 'std-13', nisn: '0061234513', name: 'Rayhan Putra', gender: 'L', classId: 'cls-3', className: 'XI MIPA 1', birthDate: '2007-12-01', academicYear: '2024/2025', parentName: 'H. Mulyadi', parentPhone: '081234567802', defaultPassword: '123' },
 
-  { id: 'std-14', nisn: '0061234514', name: 'Yusuf Habibi', gender: 'L', classId: 'cls-5', className: 'XII MIPA 1', parentName: 'H. Syarifuddin', parentPhone: '081234567803', defaultPassword: '123' },
-  { id: 'std-15', nisn: '0061234515', name: 'Maryam Qonita', gender: 'P', classId: 'cls-5', className: 'XII MIPA 1', parentName: 'H. Zainal', parentPhone: '081234567804', defaultPassword: '123' },
+  { id: 'std-14', nisn: '0061234514', name: 'Yusuf Habibi', gender: 'L', classId: 'cls-5', className: 'XII MIPA 1', birthDate: '2006-03-28', academicYear: '2024/2025', parentName: 'H. Syarifuddin', parentPhone: '081234567803', defaultPassword: '123' },
+  { id: 'std-15', nisn: '0061234515', name: 'Maryam Qonita', gender: 'P', classId: 'cls-5', className: 'XII MIPA 1', birthDate: '2006-09-17', academicYear: '2024/2025', parentName: 'H. Zainal', parentPhone: '081234567804', defaultPassword: '123' },
 ];
 
 // Generate past 30 days of historical attendance for realistic graph visualization
