@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { apiService } from '../services/apiService';
 import { AttendanceStatus, Student, AttendanceRecord } from '../types';
+import { getTodayWibDate } from '../utils/studentAuthHelper';
 import { Camera, Barcode, CheckCircle2, AlertCircle, X, Volume2, UserCheck, RefreshCw, AlertTriangle, ShieldCheck, Maximize2, Minimize2, Search, UserX, Filter, GraduationCap, Building2 } from 'lucide-react';
 
 interface BarcodeScannerModalProps {
@@ -133,7 +134,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   // Load initial today attendance to populate duplicate prevention map
   useEffect(() => {
     let isMounted = true;
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getTodayWibDate();
 
     async function loadTodayAttendance() {
       try {

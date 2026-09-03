@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Student, ClassRoom, AttendanceRecord } from '../types';
 import { apiService } from '../services/apiService';
+import { getTodayWibDate, isTodayRecord } from '../utils/studentAuthHelper';
 import {
   DoorOpen, CheckCircle2, AlertTriangle, Clock, Users, Save, ShieldCheck, RefreshCw, XCircle, UserCheck, AlertCircle, Sparkles, Filter
 } from 'lucide-react';
@@ -29,13 +30,16 @@ export const DismissalAttendanceSection: React.FC<DismissalAttendanceSectionProp
   const [selectedClassId, setSelectedClassId] = useState<string>(defaultClassId);
   const [dutyTeacherName, setDutyTeacherName] = useState<string>(user.name || 'Guru Jam Terakhir');
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getTodayWibDate();
   const selectedClass = classes.find(c => c.id === selectedClassId);
   const classStudents = students.filter(s => s.classId === selectedClassId || (selectedClass && s.className && s.className.trim().toLowerCase() === selectedClass.name.trim().toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name, 'id', { sensitivity: 'base' }));
 
   // Today's attendance records for the selected class
-  const todayClassRecords = attendanceRecords.filter(a => a.classId === selectedClassId && a.date === todayStr);
+  const todayClassRecords = attendanceRecords.filter(a =>
+    (a.classId === selectedClassId || (selectedClass && a.className && a.className.trim().toLowerCase() === selectedClass.name.trim().toLowerCase())) &&
+    isTodayRecord(a.date)
+  );
 
   // Map of NISN -> checkout checkbox state (true = Hadir Pulang, false = Bolos / Pulang Awal)
   const [checkedOutMap, setCheckedOutMap] = useState<{ [nisn: string]: boolean }>({});

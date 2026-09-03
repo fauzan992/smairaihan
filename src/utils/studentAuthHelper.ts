@@ -192,3 +192,73 @@ export function isStudentBirthDateMatch(dbBirthDate?: string, inputBirthDate?: s
 
   return false;
 }
+
+/**
+ * Formats a date string (YYYY-MM-DD, DD/MM/YYYY, etc.) into the standard Indonesian display format "DD/MM/YYYY"
+ * as shown in browser date pickers (e.g. form pencarian NISN siswa pada menu login wali murid).
+ */
+export function formatBirthDateDisplay(dateStr?: any): string {
+  if (!dateStr) return '';
+  const ymd = normalizeDateToYMD(dateStr);
+  if (!ymd) return String(dateStr).trim();
+  const parts = ymd.split('-');
+  if (parts.length === 3) {
+    const [y, m, d] = parts;
+    return `${d}/${m}/${y}`;
+  }
+  return String(dateStr).trim();
+}
+
+/**
+ * Returns today's date in YYYY-MM-DD for Asia/Jakarta (WIB) timezone,
+ * matching SMA Islam Ra'iyatul Husnan's official school timezone.
+ */
+export function getTodayWibDate(): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(new Date());
+  } catch {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+}
+
+/**
+ * Returns all potential date string candidates for "today"
+ * across Asia/Jakarta (WIB), local browser time, and UTC.
+ */
+export function getTodayDateCandidates(): string[] {
+  const dates = new Set<string>();
+  const wib = getTodayWibDate();
+  if (wib) dates.add(wib);
+
+  const now = new Date();
+  const localYMD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  dates.add(localYMD);
+
+  try {
+    const utcYMD = now.toISOString().split('T')[0];
+    dates.add(utcYMD);
+  } catch {}
+
+  return Array.from(dates);
+}
+
+/**
+ * Checks whether a given record date corresponds to "today",
+ * matching against Asia/Jakarta (WIB), local browser time, or UTC.
+ */
+export function isTodayRecord(recordDate?: string): boolean {
+  if (!recordDate) return false;
+  const clean = String(recordDate).trim();
+  const normalized = normalizeDateToYMD(clean);
+  const candidates = getTodayDateCandidates();
+  return candidates.includes(clean) || (normalized ? candidates.includes(normalized) : false);
+}

@@ -1,8 +1,8 @@
 import { User, Student, Teacher, ClassRoom, AttendanceRecord, AttendanceStatus, UserRole, SchoolSettings, BKNote, KBMJournalEntry } from '../types';
 import { INITIAL_CLASSES, INITIAL_TEACHERS, INITIAL_STUDENTS, generateInitialAttendance, INITIAL_BK_NOTES, generateInitialKBMJournals } from '../data/mockDatabase';
-import { getStoredSupabaseConfig, pushAllFromBrowser, pullAllFromBrowser, getBrowserSupabaseClient, deleteTeacherFromBrowserSupabase, deleteClassFromBrowserSupabase, deleteStudentFromBrowserSupabase, upsertTeacherToBrowserSupabase, upsertSettingsToBrowserSupabase } from './clientSupabase';
+import { getStoredSupabaseConfig, pushAllFromBrowser, pullAllFromBrowser, getBrowserSupabaseClient, deleteTeacherFromBrowserSupabase, deleteClassFromBrowserSupabase, deleteStudentFromBrowserSupabase, upsertTeacherToBrowserSupabase, upsertSettingsToBrowserSupabase, upsertStudentToBrowserSupabase } from './clientSupabase';
 import { syncClassesAndStudentsData } from '../utils/dataSync';
-import { normalizeDateToYMD, isStudentNameMatch, isStudentBirthDateMatch } from '../utils/studentAuthHelper';
+import { normalizeDateToYMD, isStudentNameMatch, isStudentBirthDateMatch, getTodayWibDate, isTodayRecord } from '../utils/studentAuthHelper';
 
 // Safe JSON fetch wrapper that checks Content-Type to prevent HTML "Unexpected token T" errors on Vercel
 async function safeFetchJson<T = any>(url: string, options?: RequestInit): Promise<{ ok: boolean; status: number; data?: T; isHtml?: boolean; error?: string }> {
@@ -657,53 +657,96 @@ export const apiService = {
   },
 
   async addStudent(studentData: Partial<Student>): Promise<{ success: boolean; student?: Student; error?: string; message?: string }> {
+    const normalizedData = {
+      ...studentData,
+      birthDate: studentData.birthDate ? (normalizeDateToYMD(studentData.birthDate) || String(studentData.birthDate).trim()) : undefined
+    };
+
     const res = await safeFetchJson<{ student?: Student; message?: string }>('/api/master/students', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(studentData)
+      body: JSON.stringify(normalizedData)
     });
-    if (res.ok && res.data) {
+
+    if (res.ok && res.data && res.data.student) {
+      const students = getLocalStudents();
+      const idx = students.findIndex(s => s.id === res.data!.student!.id || (res.data!.student!.nisn && s.nisn === res.data!.student!.nisn));
+      if (idx !== -1) {
+        students[idx] = res.data.student;
+      } else {
+        students.push(res.data.student);
+      }
+      saveLocalStudents(students);
+      upsertStudentToBrowserSupabase(res.data.student);
       return { success: true, student: res.data.student, message: res.data.message };
     }
 
     const students = getLocalStudents();
     const newStudent: Student = {
       id: `std-${Date.now()}`,
-      nisn: studentData.nisn || '',
-      name: studentData.name || '',
-      gender: studentData.gender || 'L',
-      classId: studentData.classId || 'cls-1',
-      className: studentData.className || 'X MIPA 1',
-      birthDate: studentData.birthDate || undefined,
-      address: studentData.address || undefined,
-      academicYear: studentData.academicYear || '2024/2025',
-      parentName: studentData.parentName,
-      parentPhone: studentData.parentPhone,
-      photoUrl: studentData.photoUrl,
-      defaultPassword: studentData.defaultPassword || '123'
+      nisn: String(normalizedData.nisn || '').trim(),
+      name: String(normalizedData.name || '').trim(),
+      gender: normalizedData.gender || 'L',
+      classId: normalizedData.classId || 'cls-1',
+      className: normalizedData.className || 'X MIPA 1',
+      birthDate: normalizedData.birthDate || undefined,
+      address: normalizedData.address || undefined,
+      academicYear: normalizedData.academicYear || '2024/2025',
+      parentName: normalizedData.parentName || 'Wali Siswa',
+      parentPhone: normalizedData.parentPhone || '-',
+      photoUrl: normalizedData.photoUrl || '',
+      defaultPassword: normalizedData.defaultPassword || '123'
     };
     students.push(newStudent);
     saveLocalStudents(students);
+    upsertStudentToBrowserSupabase(newStudent);
     triggerAutoSupabaseSync();
 
     return { success: true, student: newStudent, message: 'Data siswa berhasil ditambahkan.' };
   },
 
   async updateStudent(id: string, studentData: Partial<Student>): Promise<{ success: boolean; student?: Student; error?: string; message?: string }> {
+    const cleanBirthDate = studentData.birthDate !== undefined
+      ? (studentData.birthDate ? (normalizeDateToYMD(studentData.birthDate) || String(studentData.birthDate).trim()) : '')
+      : undefined;
+
+    const normalizedData = {
+      ...studentData,
+      ...(cleanBirthDate !== undefined ? { birthDate: cleanBirthDate } : {})
+    };
+
     const res = await safeFetchJson<{ student?: Student; message?: string }>(`/api/master/students/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(studentData)
+      body: JSON.stringify(normalizedData)
     });
+
     if (res.ok && res.data) {
-      return { success: true, student: res.data.student, message: res.data.message };
+      const students = getLocalStudents();
+      const idx = students.findIndex(s => s.id === id || (normalizedData.nisn && s.nisn === String(normalizedData.nisn).trim()));
+      const updatedStudent = res.data.student || (idx !== -1 ? { ...students[idx], ...normalizedData } : undefined);
+      if (updatedStudent) {
+        if (idx !== -1) {
+          students[idx] = updatedStudent;
+        } else {
+          students.push(updatedStudent);
+        }
+        saveLocalStudents(students);
+        upsertStudentToBrowserSupabase(updatedStudent);
+      }
+      return { success: true, student: updatedStudent, message: res.data.message };
     }
 
     const students = getLocalStudents();
-    const idx = students.findIndex(s => s.id === id);
+    const idx = students.findIndex(s => s.id === id || (normalizedData.nisn && s.nisn === String(normalizedData.nisn).trim()));
     if (idx !== -1) {
-      students[idx] = { ...students[idx], ...studentData };
+      students[idx] = {
+        ...students[idx],
+        ...normalizedData,
+        birthDate: cleanBirthDate !== undefined ? (cleanBirthDate || undefined) : students[idx].birthDate
+      };
       saveLocalStudents(students);
+      upsertStudentToBrowserSupabase(students[idx]);
       triggerAutoSupabaseSync();
       return { success: true, student: students[idx], message: 'Data siswa berhasil diperbarui.' };
     }
@@ -1084,6 +1127,18 @@ export const apiService = {
       body: JSON.stringify({ nisn, status, notes, recordedBy, recordedByRole })
     });
     if (res.ok && res.data) {
+      if (res.data.record) {
+        try {
+          const currentLocal = getLocalAttendance();
+          const existingIdx = currentLocal.findIndex(r => (r.nisn || '').trim() === nisn.trim() && r.date === res.data!.record!.date);
+          if (existingIdx !== -1) {
+            currentLocal[existingIdx] = res.data.record;
+          } else {
+            currentLocal.unshift(res.data.record);
+          }
+          saveLocalAttendance(currentLocal);
+        } catch {}
+      }
       return { success: true, record: res.data.record, student: res.data.student, message: res.data.message };
     }
 
@@ -1094,12 +1149,16 @@ export const apiService = {
       return { success: false, error: `Siswa dengan NISN ${nisn} tidak ditemukan dalam database.` };
     }
 
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
-    const timeStr = now.toTimeString().split(' ')[0];
+    const dateStr = getTodayWibDate();
+    let timeStr = '07:00:00';
+    try {
+      timeStr = new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date()).replace(/\./g, ':');
+    } catch {
+      timeStr = new Date().toTimeString().split(' ')[0];
+    }
 
     const records = getLocalAttendance();
-    const existingIndex = records.findIndex(r => r.nisn === student.nisn && r.date === dateStr);
+    const existingIndex = records.findIndex(r => r.nisn === student.nisn && (r.date === dateStr || isTodayRecord(r.date)));
 
     let record: AttendanceRecord;
     if (existingIndex !== -1) {
@@ -1127,7 +1186,7 @@ export const apiService = {
         recordedBy,
         recordedByRole
       };
-      records.push(record);
+      records.unshift(record);
     }
 
     saveLocalAttendance(records);
@@ -1151,30 +1210,28 @@ export const apiService = {
     if (params.status) query.append('status', params.status);
     if (params.search) query.append('search', params.search);
 
-    const res = await safeFetchJson<{ records: AttendanceRecord[]; total: number }>(`/api/attendance?${query.toString()}`);
+    query.append('_t', String(Date.now()));
+    const res = await safeFetchJson<{ records: AttendanceRecord[]; total: number }>(`/api/attendance?${query.toString()}`, {
+      headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+    });
     if (res.ok && res.data) {
-      const localStudents = getLocalStudents();
-      if (localStudents && localStudents.length > 0) {
-        const validNisns = new Set(localStudents.map(s => s.nisn));
-        const validIds = new Set(localStudents.map(s => s.id));
-        const validNames = new Set(localStudents.map(s => (s.name || '').trim().toLowerCase()));
-        const cleanRecords = res.data.records.filter(r =>
-          validNisns.has(r.nisn) || validIds.has(r.studentId) || (r.studentName && validNames.has(r.studentName.trim().toLowerCase()))
-        );
-        return { records: cleanRecords, total: cleanRecords.length };
-      }
+      try {
+        if (!params.classId && !params.startDate && !params.endDate && !params.nisn && !params.status && !params.search) {
+          saveLocalAttendance(res.data.records || []);
+        }
+      } catch {}
       return res.data;
     }
 
     let records = getLocalAttendance();
     if (params.classId) records = records.filter(r => r.classId === params.classId);
-    if (params.nisn) records = records.filter(r => r.nisn === params.nisn);
+    if (params.nisn) records = records.filter(r => (r.nisn || '').trim() === params.nisn?.trim());
     if (params.status) records = records.filter(r => r.status === params.status);
     if (params.startDate) records = records.filter(r => r.date >= params.startDate!);
     if (params.endDate) records = records.filter(r => r.date <= params.endDate!);
     if (params.search) {
       const q = params.search.toLowerCase();
-      records = records.filter(r => r.studentName.toLowerCase().includes(q) || r.nisn.includes(q) || r.className.toLowerCase().includes(q));
+      records = records.filter(r => (r.studentName || '').toLowerCase().includes(q) || (r.nisn || '').includes(q) || (r.className || '').toLowerCase().includes(q));
     }
 
     return { records, total: records.length };
@@ -1191,7 +1248,7 @@ export const apiService = {
       return { success: true, message: res.data.message };
     }
 
-    const dateStr = date || new Date().toISOString().split('T')[0];
+    const dateStr = date || getTodayWibDate();
     const timeStr = new Date().toTimeString().split(' ')[0];
     const students = getLocalStudents();
     const currentRecords = getLocalAttendance();
@@ -1200,7 +1257,7 @@ export const apiService = {
       const std = students.find(s => s.nisn === item.nisn);
       if (!std) continue;
 
-      const idx = currentRecords.findIndex(r => r.nisn === item.nisn && r.date === dateStr);
+      const idx = currentRecords.findIndex(r => r.nisn === item.nisn && (r.date === dateStr || isTodayRecord(r.date)));
       if (idx !== -1) {
         currentRecords[idx].status = item.status;
         currentRecords[idx].notes = item.notes || currentRecords[idx].notes;
@@ -1241,12 +1298,12 @@ export const apiService = {
       return { success: true, message: res.data.message };
     }
 
-    const dateStr = date || new Date().toISOString().split('T')[0];
+    const dateStr = date || getTodayWibDate();
     const timeStr = new Date().toTimeString().split(' ')[0];
     const currentRecords = getLocalAttendance();
 
     for (const item of studentsInput) {
-      const idx = currentRecords.findIndex(r => r.nisn === item.nisn && r.date === dateStr);
+      const idx = currentRecords.findIndex(r => r.nisn === item.nisn && (r.date === dateStr || isTodayRecord(r.date)));
       if (idx !== -1) {
         currentRecords[idx].checkOutTime = timeStr;
         currentRecords[idx].checkOutStatus = item.checkedOut ? 'Pulang' : 'Bolos / Pulang Awal';

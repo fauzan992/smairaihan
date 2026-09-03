@@ -524,29 +524,36 @@ async function startServer() {
   });
 
   // Student CRUD
+  app.get('/api/master/students', (req, res) => {
+    res.json(studentsDB);
+  });
+
   app.post('/api/master/students', (req, res) => {
-    const { nisn, name, gender, classId, birthDate, address, parentName, parentPhone, photoUrl } = req.body;
+    const { nisn, name, gender, classId, birthDate, address, parentName, parentPhone, photoUrl, academicYear } = req.body;
 
     if (!nisn || !name || !classId) {
       return res.status(400).json({ error: 'NISN, Nama, dan Kelas wajib diisi.' });
     }
 
-    if (studentsDB.some(s => s.nisn === nisn)) {
-      return res.status(400).json({ error: `Siswa dengan NISN ${nisn} sudah ada!` });
+    const trimmedNisn = String(nisn).trim();
+    if (studentsDB.some(s => s.nisn === trimmedNisn)) {
+      return res.status(400).json({ error: `Siswa dengan NISN ${trimmedNisn} sudah ada!` });
     }
 
+    const cleanBirthDate = birthDate ? (normalizeDateToYMD(birthDate) || String(birthDate).trim()) : undefined;
     const selectedClass = classesDB.find(c => c.id === classId);
     const newStudent: Student = {
       id: `std-${Date.now()}`,
-      nisn: nisn.trim(),
-      name: name.trim(),
+      nisn: trimmedNisn,
+      name: String(name).trim(),
       gender: gender || 'L',
       classId,
       className: selectedClass?.name || 'Unassigned',
-      birthDate: birthDate || undefined,
-      address: address || undefined,
-      parentName: parentName || 'Wali Siswa',
-      parentPhone: parentPhone || '-',
+      birthDate: cleanBirthDate,
+      address: address ? String(address).trim() : undefined,
+      academicYear: academicYear ? String(academicYear).trim() : '2024/2025',
+      parentName: parentName ? String(parentName).trim() : 'Wali Siswa',
+      parentPhone: parentPhone ? String(parentPhone).trim() : '-',
       photoUrl: photoUrl || '',
       defaultPassword: '123'
     };
@@ -568,26 +575,53 @@ async function startServer() {
 
   app.put('/api/master/students/:id', (req, res) => {
     const { id } = req.params;
-    const index = studentsDB.findIndex(s => s.id === id);
+    let index = studentsDB.findIndex(s => s.id === id);
+
+    if (index === -1 && req.body.nisn) {
+      index = studentsDB.findIndex(s => s.nisn === String(req.body.nisn).trim());
+    }
+
+    if (index === -1) {
+      // Check backup
+      const backup = readLocalDBBackup();
+      if (backup && backup.students) {
+        const found = backup.students.find(s => s.id === id || (req.body.nisn && s.nisn === String(req.body.nisn).trim()));
+        if (found) {
+          studentsDB.push(found);
+          index = studentsDB.length - 1;
+        }
+      }
+    }
 
     if (index === -1) {
       return res.status(404).json({ error: 'Siswa tidak ditemukan.' });
     }
 
-    const { nisn, name, gender, classId, birthDate, address, parentName, parentPhone, photoUrl } = req.body;
+    const { nisn, name, gender, classId, birthDate, address, parentName, parentPhone, photoUrl, academicYear } = req.body;
     const selectedClass = classesDB.find(c => c.id === classId);
+
+    // Handle birthDate: if explicitly passed as empty string or null, clear it; if valid date, normalize it
+    let cleanBirthDate: string | undefined = studentsDB[index].birthDate;
+    if (birthDate !== undefined) {
+      if (!birthDate || String(birthDate).trim() === '') {
+        cleanBirthDate = undefined;
+      } else {
+        cleanBirthDate = normalizeDateToYMD(birthDate) || String(birthDate).trim();
+      }
+    }
 
     studentsDB[index] = {
       ...studentsDB[index],
-      nisn: nisn || studentsDB[index].nisn,
-      name: name || studentsDB[index].name,
+      nisn: nisn ? String(nisn).trim() : studentsDB[index].nisn,
+      name: name ? String(name).trim() : studentsDB[index].name,
       gender: gender || studentsDB[index].gender,
       classId: classId || studentsDB[index].classId,
       className: selectedClass ? selectedClass.name : studentsDB[index].className,
-      birthDate: birthDate !== undefined ? birthDate : studentsDB[index].birthDate,
-      address: address !== undefined ? address : studentsDB[index].address,
-      parentName: parentName || studentsDB[index].parentName,
-      parentPhone: parentPhone || studentsDB[index].parentPhone,
+      birthDate: cleanBirthDate,
+      address: address !== undefined ? (address ? String(address).trim() : undefined) : studentsDB[index].address,
+      academicYear: academicYear ? String(academicYear).trim() : (studentsDB[index].academicYear || '2024/2025'),
+      parentName: parentName ? String(parentName).trim() : studentsDB[index].parentName,
+      parentPhone: parentPhone ? String(parentPhone).trim() : studentsDB[index].parentPhone,
       photoUrl: photoUrl !== undefined ? photoUrl : studentsDB[index].photoUrl
     };
 

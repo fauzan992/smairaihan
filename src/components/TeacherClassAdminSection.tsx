@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Student, Teacher, ClassRoom, AttendanceRecord, BKNote, AttendanceStatus, KBMAssignment, KBMAttendanceStatus, KBMJournalEntry } from '../types';
 import { apiService } from '../services/apiService';
+import { getTodayWibDate } from '../utils/studentAuthHelper';
 import { MonthlyKBMReport } from './MonthlyKBMReport';
 import {
   BookOpen, Users, CheckCircle2, Clock, AlertTriangle, XCircle,
@@ -138,7 +139,7 @@ export const TeacherClassAdminSection: React.FC<TeacherClassAdminSectionProps> =
   });
 
   const [sessionHour, setSessionHour] = useState<string>(sessionList[0] || DEFAULT_SESSIONS[0]);
-  const [kbmDate, setKbmDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [kbmDate, setKbmDate] = useState<string>(() => getTodayWibDate());
   const [topicSubject, setTopicSubject] = useState<string>('');
   const [classNotes, setClassNotes] = useState<string>('');
   const [kbmSubTab, setKbmSubTab] = useState<'input' | 'monthlyReport' | 'assignments'>('input');

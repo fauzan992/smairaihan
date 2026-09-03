@@ -2,6 +2,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
 import { ClassRoom, Teacher, Student, AttendanceRecord, SchoolSettings, BKNote } from '../types';
+import { normalizeDateToYMD } from '../utils/studentAuthHelper';
 
 export interface SupabaseConfig {
   url: string;
@@ -579,14 +580,15 @@ export async function pullAllFromSupabase(): Promise<{
       nisn: s.nisn,
       name: s.name,
       gender: s.gender || 'L',
-      classId: s.class_id,
-      className: s.class_name,
-      birthDate: s.birth_date || undefined,
+      classId: s.class_id || s.classId,
+      className: s.class_name || s.className,
+      birthDate: s.birth_date || s.birthDate || undefined,
       address: s.address || undefined,
-      parentName: s.parent_name || '',
-      parentPhone: s.parent_phone || '',
-      photoUrl: s.photo_url || '',
-      defaultPassword: s.default_password || '123'
+      academicYear: s.academic_year || s.academicYear || '2024/2025',
+      parentName: s.parent_name || s.parentName || '',
+      parentPhone: s.parent_phone || s.parentPhone || '',
+      photoUrl: s.photo_url || s.photoUrl || '',
+      defaultPassword: s.default_password || s.defaultPassword || '123'
     }));
 
     const attendance: AttendanceRecord[] = (resAtt.data || []).map(a => ({
@@ -708,21 +710,39 @@ export async function upsertStudentToSupabase(student: Student) {
   const supabase = getSupabaseClient();
   if (!supabase) return;
   try {
-    const payload = {
+    const formattedBirthDate = student.birthDate ? (normalizeDateToYMD(student.birthDate) || student.birthDate) : null;
+    const payload: any = {
       id: student.id,
       nisn: student.nisn,
       name: student.name,
       gender: student.gender || 'L',
       class_id: student.classId,
       class_name: student.className,
-      birth_date: student.birthDate || null,
+      birth_date: formattedBirthDate,
       address: student.address || null,
       parent_name: student.parentName || '',
       parent_phone: student.parentPhone || '',
       photo_url: student.photoUrl || '',
       default_password: student.defaultPassword || '123'
     };
-    await supabase.from('students').upsert(payload, { onConflict: 'id' });
+    let { error } = await supabase.from('students').upsert(payload, { onConflict: 'id' });
+    if (error && (error.code === '23505' || (error.message && error.message.includes('nisn')))) {
+      // Conflict on nisn unique constraint - update by nisn
+      const { id, ...payloadWithoutId } = payload;
+      const res = await supabase.from('students').update(payloadWithoutId).eq('nisn', student.nisn);
+      error = res.error;
+    }
+    if (error && error.message && error.message.includes('photo_url')) {
+      const { photo_url, ...noPhoto } = payload;
+      let res = await supabase.from('students').upsert(noPhoto, { onConflict: 'id' });
+      if (res.error && (res.error.code === '23505' || res.error.message.includes('nisn'))) {
+        const { id, ...noPhotoNoId } = noPhoto;
+        await supabase.from('students').update(noPhotoNoId).eq('nisn', student.nisn);
+      }
+    }
+    if (error) {
+      console.warn('Upsert student to Supabase notice:', error.message);
+    }
   } catch (err) {
     console.error('Error upserting student to Supabase:', err);
   }

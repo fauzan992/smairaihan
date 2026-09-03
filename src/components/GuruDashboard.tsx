@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Student, Teacher, AttendanceRecord, AttendanceStatus, ClassRoom } from '../types';
 import { apiService } from '../services/apiService';
 import { exportAttendanceToExcel } from '../utils/excelHelper';
+import { getTodayWibDate, isTodayRecord } from '../utils/studentAuthHelper';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { NISNBarcode } from './NISNBarcode';
 import { DismissalAttendanceSection } from './DismissalAttendanceSection';
@@ -72,8 +73,11 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
     (currentClass && s.className && s.className.trim().toLowerCase() === currentClass.name.trim().toLowerCase())
   ).sort((a, b) => a.name.localeCompare(b.name, 'id', { sensitivity: 'base' }));
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todayRecords = attendanceRecords.filter(a => a.classId === teacherClassId && a.date === todayStr);
+  const todayStr = getTodayWibDate();
+  const todayRecords = attendanceRecords.filter(a =>
+    (a.classId === teacherClassId || (currentClass && a.className && a.className.trim().toLowerCase() === currentClass.name.trim().toLowerCase())) &&
+    isTodayRecord(a.date)
+  );
 
   // Manual Roster State for batch updating
   const [rosterStatus, setRosterStatus] = useState<{ [nisn: string]: { status: AttendanceStatus; notes: string } }>(() => {
@@ -97,7 +101,7 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
     d.setDate(d.getDate() - 30);
     return d.toISOString().split('T')[0];
   });
-  const [reportEndDate, setReportEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [reportEndDate, setReportEndDate] = useState(() => getTodayWibDate());
   const [reportStatusFilter, setReportStatusFilter] = useState('all');
 
   const classHistoryRecords = attendanceRecords.filter(rec => {
@@ -164,9 +168,11 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
         <MainDashboardOverview
           user={user}
           students={students}
-          teachers={[]}
+          teachers={teachers}
           classes={classes}
           attendanceRecords={attendanceRecords}
+          onRefreshData={onRefreshData}
+          onOpenScanner={() => setShowScannerModal(true)}
           onNavigateTab={(tab, sub) => {
             if (tab === 'master') {
               setActiveTab('today');

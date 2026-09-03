@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { ClassRoom, Teacher, Student, AttendanceRecord, SchoolSettings, BKNote } from '../types';
+import { normalizeDateToYMD } from '../utils/studentAuthHelper';
 
 const STORAGE_KEY_URL = 'app_supabase_url';
 const STORAGE_KEY_KEY = 'app_supabase_anon_key';
@@ -438,6 +439,7 @@ export async function upsertStudentToBrowserSupabase(student: Student) {
   const supabase = getBrowserSupabaseClient();
   if (!supabase) return;
   try {
+    const formattedBirthDate = student.birthDate ? (normalizeDateToYMD(student.birthDate) || student.birthDate) : null;
     const payload: any = {
       id: student.id,
       nisn: student.nisn,
@@ -445,7 +447,7 @@ export async function upsertStudentToBrowserSupabase(student: Student) {
       gender: student.gender || 'L',
       class_id: student.classId,
       class_name: student.className,
-      birth_date: student.birthDate || null,
+      birth_date: formattedBirthDate,
       address: student.address || null,
       academic_year: student.academicYear || '2024/2025',
       parent_name: student.parentName || null,
@@ -455,9 +457,18 @@ export async function upsertStudentToBrowserSupabase(student: Student) {
     };
 
     let { error } = await supabase.from('students').upsert(payload, { onConflict: 'id' });
-    if (error && error.message && (error.message.includes('photo_url') || error.message.includes('birth_date') || error.message.includes('academic_year'))) {
+    if (error && (error.code === '23505' || (error.message && error.message.includes('nisn')))) {
+      const { id, ...payloadWithoutId } = payload;
+      const res = await supabase.from('students').update(payloadWithoutId).eq('nisn', student.nisn);
+      error = res.error;
+    }
+    if (error && error.message && (error.message.includes('photo_url') || error.message.includes('academic_year'))) {
       const { photo_url, academic_year, ...basicPayload } = payload;
-      await supabase.from('students').upsert(basicPayload, { onConflict: 'id' });
+      let res = await supabase.from('students').upsert(basicPayload, { onConflict: 'id' });
+      if (res.error && (res.error.code === '23505' || res.error.message.includes('nisn'))) {
+        const { id, ...basicWithoutId } = basicPayload;
+        await supabase.from('students').update(basicWithoutId).eq('nisn', student.nisn);
+      }
     }
   } catch (e) {
     console.warn('Error upserting student to Supabase browser client:', e);

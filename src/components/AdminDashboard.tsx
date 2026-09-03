@@ -4,6 +4,7 @@ import { apiService } from '../services/apiService';
 import { exportAttendanceToExcel, downloadStudentTemplate, downloadTeacherTemplate, parseExcelFile } from '../utils/excelHelper';
 import { exportStudentsToStructuredExcel } from '../utils/studentExportHelper';
 import { findMatchingClass } from '../utils/dataSync';
+import { normalizeDateToYMD, formatBirthDateDisplay, getTodayWibDate, isTodayRecord } from '../utils/studentAuthHelper';
 import { NISNBarcode } from './NISNBarcode';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { GoogleSheetsManager } from './GoogleSheetsManager';
@@ -24,7 +25,7 @@ import {
   Users, UserCheck, GraduationCap, School, Barcode, FileSpreadsheet,
   Plus, Edit, Trash2, Search, Filter, Download, Upload, CheckCircle2,
   XCircle, Clock, AlertTriangle, RefreshCw, Key, ArrowDownToLine, Eye, DoorOpen,
-  Printer, CreditCard, Image as ImageIcon, Camera, X, Award, HeartHandshake, QrCode, BookOpen, Check
+  Printer, CreditCard, Image as ImageIcon, Camera, X, Award, HeartHandshake, QrCode, BookOpen, Check, Calendar
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -95,7 +96,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     d.setDate(d.getDate() - 30);
     return d.toISOString().split('T')[0];
   });
-  const [reportEndDate, setReportEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [reportEndDate, setReportEndDate] = useState(() => getTodayWibDate());
   const [reportStatusFilter, setReportStatusFilter] = useState('all');
   const [reportSearch, setReportSearch] = useState('');
 
@@ -312,14 +313,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [importLoading, setImportLoading] = useState(false);
   const [importMessage, setImportMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todayAttendance = attendanceRecords.filter(a => a.date === todayStr);
+  const todayStr = getTodayWibDate();
+  const todayAttendance = attendanceRecords.filter(a => isTodayRecord(a.date));
+
+  // Determine latest active attendance date if today has 0 records
+  const availableAttendanceDates = Array.from(new Set(attendanceRecords.map(r => normalizeDateToYMD(r.date) || r.date).filter(Boolean))).sort().reverse();
+  const latestAttendanceDate = availableAttendanceDates[0] || todayStr;
+  const activeDisplayDate = todayAttendance.length > 0 ? todayStr : latestAttendanceDate;
+  const activeAttendance = todayAttendance.length > 0 ? todayAttendance : attendanceRecords.filter(a => {
+    const norm = normalizeDateToYMD(a.date);
+    return a.date === activeDisplayDate || norm === activeDisplayDate;
+  });
 
   const totalStudentsCount = students.length;
-  const totalHadirToday = todayAttendance.filter(a => a.status === 'Hadir').length;
-  const totalIzinToday = todayAttendance.filter(a => a.status === 'Izin').length;
-  const totalSakitToday = todayAttendance.filter(a => a.status === 'Sakit').length;
-  const totalAlpaToday = todayAttendance.filter(a => a.status === 'Alpa').length;
+  const totalHadirToday = activeAttendance.filter(a => a.status === 'Hadir').length;
+  const totalIzinToday = activeAttendance.filter(a => a.status === 'Izin').length;
+  const totalSakitToday = activeAttendance.filter(a => a.status === 'Sakit').length;
+  const totalAlpaToday = activeAttendance.filter(a => a.status === 'Alpa').length;
 
   // Filtered Students for Master Tab
   const filteredStudents = students.filter(s => {
@@ -371,8 +381,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
 
       const selectedClassObj = classes.find(c => c.id === studentForm.classId);
+      const cleanBirthDate = studentForm.birthDate ? (normalizeDateToYMD(studentForm.birthDate) || studentForm.birthDate.trim()) : '';
       const payload = {
         ...studentForm,
+        birthDate: cleanBirthDate,
         className: selectedClassObj?.name || '',
         photoUrl: finalPhotoUrl
       };
@@ -409,7 +421,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       name: st.name,
       gender: st.gender,
       classId: st.classId,
-      birthDate: st.birthDate || '',
+      birthDate: st.birthDate ? (normalizeDateToYMD(st.birthDate) || st.birthDate) : '',
       address: st.address || '',
       parentName: st.parentName,
       parentPhone: st.parentPhone,
@@ -604,6 +616,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Helper to parse dates from various Excel formats
   const parseDateString = (raw: any): string => {
     if (!raw) return '';
+    const normalized = normalizeDateToYMD(raw);
+    if (normalized) return normalized;
+
     const str = String(raw).trim();
     if (str === '-' || str === 'null' || str === 'undefined' || str === '') return '';
     
@@ -731,6 +746,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           teachers={teachers}
           classes={classes}
           attendanceRecords={attendanceRecords}
+          onRefreshData={onRefreshData}
+          onOpenScanner={() => setShowScannerModal(true)}
           onNavigateTab={(tab, sub) => {
             setActiveTab(tab);
             if (sub) setMasterSubTab(sub);
@@ -775,7 +792,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {/* Hadir Hari Ini Bento Card (Hero Accent) */}
               <div className="bg-emerald-600 p-5 rounded-2xl shadow-lg text-white flex flex-col justify-between hover:bg-emerald-700 transition-all">
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] text-emerald-100 font-extrabold uppercase tracking-widest">Hadir Hari Ini</p>
+                  <p className="text-[10px] text-emerald-100 font-extrabold uppercase tracking-widest">
+                    Hadir {activeDisplayDate === todayStr ? 'Hari Ini' : `(${activeDisplayDate})`}
+                  </p>
                   <div className="w-8 h-8 rounded-xl bg-emerald-500/80 text-white flex items-center justify-center font-bold">
                     <UserCheck className="w-4 h-4" />
                   </div>
@@ -1068,6 +1087,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <th className="p-3">NISN & Code</th>
                           <th className="p-3">Nama Siswa</th>
                           <th className="p-3">L/P</th>
+                          <th className="p-3">Tgl Lahir</th>
                           <th className="p-3">Kelas</th>
                           <th className="p-3">Wali Murid</th>
                           <th className="p-3 text-right">Aksi</th>
@@ -1076,7 +1096,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <tbody className="divide-y divide-slate-100">
                         {paginatedStudents.length === 0 ? (
                           <tr>
-                            <td colSpan={9} className="p-8 text-center text-slate-400">
+                            <td colSpan={10} className="p-8 text-center text-slate-400">
                               Tidak ada data siswa yang ditemukan.
                             </td>
                           </tr>
@@ -1138,6 +1158,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 </td>
                                 <td className="p-3 font-bold text-slate-900">{st.name}</td>
                                 <td className="p-3">{st.gender}</td>
+                                <td className="p-3">
+                                  {st.birthDate ? (
+                                    <span
+                                      className="px-2 py-0.5 bg-emerald-50 text-emerald-800 rounded-md font-semibold text-[11px] border border-emerald-200 font-mono whitespace-nowrap"
+                                      title={`Format baku: ${st.birthDate}`}
+                                    >
+                                      {formatBirthDateDisplay(st.birthDate)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400 italic text-[11px] whitespace-nowrap">Belum diisi</span>
+                                  )}
+                                </td>
                                 <td className="p-3 font-semibold text-slate-700">{st.className}</td>
                                 <td className="p-3">{st.parentName} ({st.parentPhone})</td>
                                 <td className="p-3 text-right space-x-1">
@@ -1691,20 +1723,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div>
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-slate-900 font-extrabold text-base flex items-center gap-2">
-                      <UserCheck className="w-5 h-5 text-emerald-600" /> Log Kehadiran Real-Time Hari Ini
+                      <UserCheck className="w-5 h-5 text-emerald-600" /> Log Kehadiran Real-Time {todayAttendance.length > 0 ? 'Hari Ini' : `(${activeDisplayDate})`}
                     </h3>
                     <span className="text-xs text-emerald-700 font-extrabold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">
-                      {todayAttendance.length} Presensi
+                      {activeAttendance.length} Presensi
                     </span>
                   </div>
 
                   <div className="space-y-2.5 max-h-[320px] overflow-y-auto pr-1">
-                    {todayAttendance.length === 0 ? (
+                    {activeAttendance.length === 0 ? (
                       <div className="p-8 text-center text-xs text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                        Belum ada siswa yang melakukan scan presensi barcode hari ini.
+                        Belum ada siswa yang melakukan scan presensi barcode.
                       </div>
                     ) : (
-                      todayAttendance.map((rec) => (
+                      activeAttendance.map((rec) => (
                         <div key={rec.id} className="flex items-center gap-3 p-3 border border-slate-100 rounded-2xl bg-slate-50/80 hover:bg-white hover:border-slate-200 hover:shadow-xs transition-all">
                           <div className="w-9 h-9 rounded-xl bg-emerald-700 text-amber-300 font-black text-sm flex items-center justify-center shrink-0 shadow-xs">
                             {rec.studentName.charAt(0)}
@@ -2187,7 +2219,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 <td className="p-2.5 font-bold">{genderVal.toUpperCase().startsWith('P') ? 'P' : 'L'}</td>
                                 <td className="p-2.5 font-mono text-[11px] text-slate-700">
                                   {birthDateVal ? (
-                                    <span className="px-2 py-0.5 bg-slate-100 rounded-md font-semibold border border-slate-200">{birthDateVal}</span>
+                                    <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 rounded-md font-semibold border border-emerald-200 whitespace-nowrap">
+                                      {formatBirthDateDisplay(birthDateVal)}
+                                    </span>
                                   ) : (
                                     <span className="text-slate-400 italic">-</span>
                                   )}
@@ -2407,15 +2441,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Tanggal Lahir Siswa</label>
-                <input
-                  type="date"
-                  value={studentForm.birthDate}
-                  onChange={(e) => setStudentForm({ ...studentForm, birthDate: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg font-mono bg-white text-slate-900"
-                  title="Pilih tanggal lahir siswa"
-                />
-                <p className="text-[10px] text-slate-400 mt-0.5">Tersimpan ke database Supabase Cloud & digunakan login wali murid</p>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-extrabold text-slate-700">Tanggal Lahir Siswa</label>
+                  {studentForm.birthDate && (
+                    <button
+                      type="button"
+                      onClick={() => setStudentForm({ ...studentForm, birthDate: '' })}
+                      className="text-[11px] text-rose-600 hover:text-rose-700 font-semibold cursor-pointer"
+                    >
+                      Hapus Tanggal
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <Calendar className="w-4 h-4 absolute left-3 top-2.5 text-slate-400 pointer-events-none" />
+                  <input
+                    type="date"
+                    value={studentForm.birthDate}
+                    onChange={(e) => setStudentForm({ ...studentForm, birthDate: e.target.value })}
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-600 font-sans"
+                    title="Pilih tanggal lahir siswa"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Pilih tanggal lahir siswa sesuai akta lahir / rapor / database sekolah (format yang sama dengan form verifikasi Lupa NISN di menu login wali murid).
+                </p>
               </div>
 
               <div>
@@ -2846,6 +2896,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <th className="p-3">NISN</th>
                       <th className="p-3">Nama Siswa</th>
                       <th className="p-3">L/P</th>
+                      <th className="p-3">Tgl Lahir</th>
                       <th className="p-3">Nama Wali</th>
                       <th className="p-3">No HP Wali</th>
                       <th className="p-3 text-right">Aksi</th>
@@ -2866,7 +2917,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       if (classStudents.length === 0) {
                         return (
                           <tr>
-                            <td colSpan={8} className="p-8 text-center text-xs text-slate-400">
+                            <td colSpan={9} className="p-8 text-center text-xs text-slate-400">
                               Belum ada data siswa yang terhubung dengan kelas {selectedClassForDetail.name}.
                             </td>
                           </tr>
@@ -2888,6 +2939,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <td className="p-3 font-mono font-bold text-emerald-800">{st.nisn}</td>
                           <td className="p-3 font-extrabold text-slate-900">{st.name}</td>
                           <td className="p-3">{st.gender}</td>
+                          <td className="p-3">
+                            {st.birthDate ? (
+                              <span
+                                className="px-2 py-0.5 bg-emerald-50 text-emerald-800 rounded-md font-semibold text-[11px] border border-emerald-200 font-mono whitespace-nowrap"
+                                title={`Format baku: ${st.birthDate}`}
+                              >
+                                {formatBirthDateDisplay(st.birthDate)}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic text-[11px] whitespace-nowrap">Belum diisi</span>
+                            )}
+                          </td>
                           <td className="p-3 font-medium text-slate-800">{st.parentName}</td>
                           <td className="p-3 font-mono text-slate-600">{st.parentPhone}</td>
                           <td className="p-3 text-right space-x-1">

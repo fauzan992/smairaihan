@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Student, AttendanceRecord, SchoolSettings } from '../types';
+import { getTodayWibDate, isTodayRecord } from '../utils/studentAuthHelper';
 import { StudentQRCodeCardModal } from './StudentQRCodeCardModal';
 import { apiService } from '../services/apiService';
 import {
@@ -92,21 +93,7 @@ export const WaliMuridDashboard: React.FC<WaliMuridDashboardProps> = ({
     }
   };
 
-  // Helper for current date in YYYY-MM-DD (Asia/Jakarta / WIB)
-  const getTodayWibDate = () => {
-    try {
-      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-    } catch {
-      const d = new Date();
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    }
-  };
-
   const todayStr = getTodayWibDate();
-  const utcTodayStr = new Date().toISOString().split('T')[0];
 
   // Robust child student record matching
   const childTargetNisn = (user.childNisn || user.nisn || user.username || '').trim();
@@ -131,8 +118,8 @@ export const WaliMuridDashboard: React.FC<WaliMuridDashboardProps> = ({
     (r.studentName && student.name && r.studentName.trim().toLowerCase() === student.name.trim().toLowerCase())
   );
 
-  // Today's records matching WIB or UTC date
-  const todayRecords = childRecords.filter(r => r.date === todayStr || r.date === utcTodayStr);
+  // Today's records matching WIB or UTC candidate dates
+  const todayRecords = childRecords.filter(r => isTodayRecord(r.date));
 
   // Separate Gate Scan (Piket Pos Gerbang) vs KBM (Teacher Subject) records today
   const todayGateRecord = todayRecords.find(r => 
