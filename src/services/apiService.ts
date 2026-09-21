@@ -1,6 +1,6 @@
 import { User, Student, Teacher, ClassRoom, AttendanceRecord, AttendanceStatus, UserRole, SchoolSettings, BKNote, KBMJournalEntry } from '../types';
 import { INITIAL_CLASSES, INITIAL_TEACHERS, INITIAL_STUDENTS, generateInitialAttendance, INITIAL_BK_NOTES, generateInitialKBMJournals } from '../data/mockDatabase';
-import { getStoredSupabaseConfig, pushAllFromBrowser, pullAllFromBrowser, getBrowserSupabaseClient, deleteTeacherFromBrowserSupabase, deleteClassFromBrowserSupabase, deleteStudentFromBrowserSupabase, upsertTeacherToBrowserSupabase, upsertSettingsToBrowserSupabase, upsertStudentToBrowserSupabase } from './clientSupabase';
+import { getStoredSupabaseConfig, isBrowserSupabaseConfigured, pushAllFromBrowser, pullAllFromBrowser, getBrowserSupabaseClient, deleteTeacherFromBrowserSupabase, deleteClassFromBrowserSupabase, deleteStudentFromBrowserSupabase, upsertTeacherToBrowserSupabase, upsertSettingsToBrowserSupabase, upsertStudentToBrowserSupabase, upsertAttendanceToBrowserSupabase } from './clientSupabase';
 import { syncClassesAndStudentsData } from '../utils/dataSync';
 import { normalizeDateToYMD, isStudentNameMatch, isStudentBirthDateMatch, getTodayWibDate, isTodayRecord } from '../utils/studentAuthHelper';
 
@@ -632,31 +632,61 @@ export const apiService = {
     // Automatically ensure client has active Supabase credentials from server
     syncSupabaseCredentialsWithServer().catch(() => {});
 
+    // 1. Try Browser Supabase Client FIRST if configured and connected
+    try {
+      const sbConfig = getStoredSupabaseConfig();
+      if (sbConfig.url && sbConfig.anonKey && sbConfig.status === 'connected') {
+        const pullRes = await pullAllFromBrowser(sbConfig.url, sbConfig.anonKey);
+        if (pullRes.success && pullRes.data && pullRes.data.students.length > 0) {
+          const localStudents = getLocalStudents();
+          // Merge with any fresh local updates to prevent race conditions
+          const mergedStudents = pullRes.data.students.map(remoteStudent => {
+            const local = localStudents.find(l => l.id === remoteStudent.id || l.nisn === remoteStudent.nisn);
+            if (local && local.classId && (local.classId !== remoteStudent.classId || local.className !== remoteStudent.className)) {
+              return {
+                ...remoteStudent,
+                classId: local.classId,
+                className: local.className
+              };
+            }
+            return remoteStudent;
+          });
+
+          const synced = syncClassesAndStudentsData(pullRes.data.classes, mergedStudents, pullRes.data.teachers);
+          saveLocalClasses(synced.classes);
+          saveLocalStudents(synced.students);
+          saveLocalTeachers(synced.teachers);
+          saveLocalAttendance(pullRes.data.attendance);
+          return synced;
+        }
+      }
+    } catch (err) {
+      console.warn('Browser Supabase pull in getMasterData:', err);
+    }
+
+    // 2. Fetch from backend API
     const res = await safeFetchJson<{ classes: ClassRoom[]; teachers: Teacher[]; students: Student[] }>(`/api/master/data?t=${Date.now()}`);
     if (res.ok && res.data) {
-      const synced = syncClassesAndStudentsData(res.data.classes || [], res.data.students || [], res.data.teachers || []);
+      const localStudents = getLocalStudents();
+      const serverStudents = res.data.students || [];
+      const mergedStudents = serverStudents.map(serverStudent => {
+        const local = localStudents.find(l => l.id === serverStudent.id || l.nisn === serverStudent.nisn);
+        if (local && local.classId && (local.classId !== serverStudent.classId || local.className !== serverStudent.className)) {
+          return {
+            ...serverStudent,
+            classId: local.classId,
+            className: local.className
+          };
+        }
+        return serverStudent;
+      });
+
+      const synced = syncClassesAndStudentsData(res.data.classes || [], mergedStudents, res.data.teachers || []);
       // Sync local storage cache for offline / fallback
       saveLocalClasses(synced.classes);
       saveLocalStudents(synced.students);
       saveLocalTeachers(synced.teachers);
       return synced;
-    }
-
-    // Try browser Supabase pull on fallback/static mode
-    try {
-      const sbConfig = getStoredSupabaseConfig();
-      if (sbConfig.url && sbConfig.anonKey) {
-        const pullRes = await pullAllFromBrowser(sbConfig.url, sbConfig.anonKey);
-        if (pullRes.success && pullRes.data && pullRes.data.students.length > 0) {
-          saveLocalClasses(pullRes.data.classes);
-          saveLocalStudents(pullRes.data.students);
-          saveLocalTeachers(pullRes.data.teachers);
-          saveLocalAttendance(pullRes.data.attendance);
-          return syncClassesAndStudentsData(pullRes.data.classes, pullRes.data.students, pullRes.data.teachers);
-        }
-      }
-    } catch (err) {
-      console.warn('Browser Supabase pull fallback in getMasterData:', err);
     }
 
     const localSynced = syncClassesAndStudentsData(getLocalClasses(), getLocalStudents(), getLocalTeachers());
@@ -725,79 +755,76 @@ export const apiService = {
       ...(cleanBirthDate !== undefined ? { birthDate: cleanBirthDate } : {})
     };
 
-    const res = await safeFetchJson<{ student?: Student; message?: string }>(`/api/master/students/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(normalizedData)
-    });
-
-    if (res.ok && res.data) {
-      const students = getLocalStudents();
-      const idx = students.findIndex(s => s.id === id || (normalizedData.nisn && s.nisn === String(normalizedData.nisn).trim()));
-      const updatedStudent = res.data.student || (idx !== -1 ? { ...students[idx], ...normalizedData } : undefined);
-      if (updatedStudent) {
-        if (idx !== -1) {
-          students[idx] = updatedStudent;
-        } else {
-          students.push(updatedStudent);
-        }
-        saveLocalStudents(students);
-
-        // Update local classes studentCount
-        const localClasses = getLocalClasses();
-        const updatedLocalClasses = localClasses.map(c => ({
-          ...c,
-          studentCount: students.filter(s => s.classId === c.id || (c.name && s.className && s.className.trim().toLowerCase() === c.name.trim().toLowerCase())).length
-        }));
-        saveLocalClasses(updatedLocalClasses);
-
-        // Update local attendance records for this student to reflect new class
-        const localAtt = getLocalAttendance();
-        const updatedAtt = localAtt.map(a => (a.nisn === updatedStudent.nisn || a.studentId === updatedStudent.id) ? { ...a, classId: updatedStudent.classId, className: updatedStudent.className } : a);
-        saveLocalAttendance(updatedAtt);
-
-        // Await Supabase sync before returning so client pulls fresh data
-        try {
-          await upsertStudentToBrowserSupabase(updatedStudent);
-        } catch (sbErr) {
-          console.warn('Supabase browser sync notice in updateStudent:', sbErr);
-        }
-      }
-      return { success: true, student: updatedStudent, message: res.data.message };
-    }
-
+    // 1. Immediately update Local Storage with the user-selected class
     const students = getLocalStudents();
     const idx = students.findIndex(s => s.id === id || (normalizedData.nisn && s.nisn === String(normalizedData.nisn).trim()));
+    const updatedStudent: Student = {
+      ...(idx !== -1 ? students[idx] : {} as Student),
+      ...normalizedData,
+      id: id || (idx !== -1 ? students[idx].id : `std-${Date.now()}`),
+      nisn: normalizedData.nisn ? String(normalizedData.nisn).trim() : (idx !== -1 ? students[idx].nisn : ''),
+      name: normalizedData.name ? String(normalizedData.name).trim() : (idx !== -1 ? students[idx].name : ''),
+      gender: (normalizedData.gender as any) || (idx !== -1 ? students[idx].gender : 'L'),
+      classId: normalizedData.classId || (idx !== -1 ? students[idx].classId : ''),
+      className: normalizedData.className || (idx !== -1 ? students[idx].className : ''),
+      birthDate: cleanBirthDate !== undefined ? (cleanBirthDate || undefined) : (idx !== -1 ? students[idx].birthDate : undefined)
+    };
+
     if (idx !== -1) {
-      students[idx] = {
-        ...students[idx],
-        ...normalizedData,
-        birthDate: cleanBirthDate !== undefined ? (cleanBirthDate || undefined) : students[idx].birthDate
-      };
-      saveLocalStudents(students);
-
-      // Update local classes studentCount
-      const localClasses = getLocalClasses();
-      const updatedLocalClasses = localClasses.map(c => ({
-        ...c,
-        studentCount: students.filter(s => s.classId === c.id || (c.name && s.className && s.className.trim().toLowerCase() === c.name.trim().toLowerCase())).length
-      }));
-      saveLocalClasses(updatedLocalClasses);
-
-      // Update local attendance records for this student to reflect new class
-      const localAtt = getLocalAttendance();
-      const updatedAtt = localAtt.map(a => (a.nisn === students[idx].nisn || a.studentId === students[idx].id) ? { ...a, classId: students[idx].classId, className: students[idx].className } : a);
-      saveLocalAttendance(updatedAtt);
-
-      try {
-        await upsertStudentToBrowserSupabase(students[idx]);
-      } catch (sbErr) {
-        console.warn('Supabase browser sync notice in updateStudent fallback:', sbErr);
-      }
-      triggerAutoSupabaseSync();
-      return { success: true, student: students[idx], message: 'Data siswa berhasil diperbarui.' };
+      students[idx] = updatedStudent;
+    } else {
+      students.push(updatedStudent);
     }
-    return { success: false, error: 'Data siswa tidak ditemukan.' };
+    saveLocalStudents(students);
+
+    // Update local classes studentCount
+    const localClasses = getLocalClasses();
+    const updatedLocalClasses = localClasses.map(c => ({
+      ...c,
+      studentCount: students.filter(s => s.classId === c.id || (c.name && s.className && s.className.trim().toLowerCase() === c.name.trim().toLowerCase())).length
+    }));
+    saveLocalClasses(updatedLocalClasses);
+
+    // Update local attendance records for this student to reflect new class
+    const localAtt = getLocalAttendance();
+    const updatedAtt = localAtt.map(a => (a.nisn === updatedStudent.nisn || a.studentId === updatedStudent.id) ? { ...a, classId: updatedStudent.classId, className: updatedStudent.className } : a);
+    saveLocalAttendance(updatedAtt);
+
+    // 2. Direct sync to Supabase Cloud from browser (ensures persistent cloud DB is immediately updated)
+    try {
+      await upsertStudentToBrowserSupabase(updatedStudent);
+    } catch (sbErr) {
+      console.warn('Supabase browser sync notice in updateStudent:', sbErr);
+    }
+
+    // 3. Notify backend server API
+    try {
+      const res = await safeFetchJson<{ student?: Student; message?: string }>(`/api/master/students/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(normalizedData)
+      });
+      if (res.ok && res.data?.student) {
+        const serverStudent = res.data.student;
+        const finalStudent: Student = {
+          ...serverStudent,
+          classId: updatedStudent.classId,
+          className: updatedStudent.className
+        };
+        const curList = getLocalStudents();
+        const curIdx = curList.findIndex(s => s.id === id || s.nisn === updatedStudent.nisn);
+        if (curIdx !== -1) {
+          curList[curIdx] = finalStudent;
+          saveLocalStudents(curList);
+        }
+        return { success: true, student: finalStudent, message: res.data.message || 'Data siswa berhasil diperbarui!' };
+      }
+    } catch (apiErr) {
+      console.warn('Backend API updateStudent notice:', apiErr);
+    }
+
+    triggerAutoSupabaseSync();
+    return { success: true, student: updatedStudent, message: 'Data siswa berhasil diperbarui.' };
   },
 
   async deleteStudent(id: string): Promise<{ success: boolean; error?: string; message?: string }> {
@@ -1168,30 +1195,36 @@ export const apiService = {
 
   // Attendance Scanning
   async scanBarcode(nisn: string, status: AttendanceStatus = 'Hadir', notes: string = '', recordedBy: string = 'Scan QR Code', recordedByRole: string = 'admin'): Promise<{ success: boolean; record?: AttendanceRecord; student?: Student; error?: string; message?: string }> {
+    const cleanNisn = String(nisn).trim();
     const res = await safeFetchJson<{ record?: AttendanceRecord; student?: Student; message?: string }>('/api/attendance/scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nisn, status, notes, recordedBy, recordedByRole })
+      body: JSON.stringify({ nisn: cleanNisn, status, notes, recordedBy, recordedByRole })
     });
     if (res.ok && res.data) {
       if (res.data.record) {
         try {
           const currentLocal = getLocalAttendance();
-          const existingIdx = currentLocal.findIndex(r => (r.nisn || '').trim() === nisn.trim() && r.date === res.data!.record!.date);
+          const existingIdx = currentLocal.findIndex(r => (r.nisn || '').trim() === cleanNisn && (r.date === res.data!.record!.date || isTodayRecord(r.date)));
           if (existingIdx !== -1) {
             currentLocal[existingIdx] = res.data.record;
           } else {
             currentLocal.unshift(res.data.record);
           }
           saveLocalAttendance(currentLocal);
-        } catch {}
+
+          // Direct browser Supabase sync to guarantee durability across environments
+          await upsertAttendanceToBrowserSupabase(res.data.record);
+        } catch (sbErr) {
+          console.warn('Notice syncing scan to Supabase browser client:', sbErr);
+        }
       }
       return { success: true, record: res.data.record, student: res.data.student, message: res.data.message };
     }
 
     // Client mode attendance scanning
     const students = getLocalStudents();
-    const student = students.find(s => s.nisn === nisn.trim());
+    const student = students.find(s => (s.nisn || '').trim() === cleanNisn);
     if (!student) {
       return { success: false, error: `Siswa dengan NISN ${nisn} tidak ditemukan dalam database.` };
     }
@@ -1205,7 +1238,7 @@ export const apiService = {
     }
 
     const records = getLocalAttendance();
-    const existingIndex = records.findIndex(r => r.nisn === student.nisn && (r.date === dateStr || isTodayRecord(r.date)));
+    const existingIndex = records.findIndex(r => (r.nisn || '').trim() === cleanNisn && (r.date === dateStr || isTodayRecord(r.date)));
 
     let record: AttendanceRecord;
     if (existingIndex !== -1) {
@@ -1237,6 +1270,9 @@ export const apiService = {
     }
 
     saveLocalAttendance(records);
+    try {
+      await upsertAttendanceToBrowserSupabase(record);
+    } catch {}
     triggerAutoSupabaseSync();
 
     return {
@@ -1263,11 +1299,69 @@ export const apiService = {
     });
     if (res.ok && res.data) {
       try {
+        const serverRecords = res.data.records || [];
+        const localRecords = getLocalAttendance();
+
+        // Merge records so locally scanned records or recent attendances are preserved
+        const mergedMap = new Map<string, AttendanceRecord>();
+        serverRecords.forEach(r => mergedMap.set(`${r.date}_${String(r.nisn).trim()}`, r));
+        localRecords.forEach(r => {
+          const key = `${r.date}_${String(r.nisn).trim()}`;
+          if (!mergedMap.has(key)) {
+            mergedMap.set(key, r);
+          }
+        });
+
+        const combined = Array.from(mergedMap.values());
+        combined.sort((a, b) => {
+          if (b.date !== a.date) return b.date.localeCompare(a.date);
+          return (b.time || '').localeCompare(a.time || '');
+        });
+
         if (!params.classId && !params.startDate && !params.endDate && !params.nisn && !params.status && !params.search) {
-          saveLocalAttendance(res.data.records || []);
+          saveLocalAttendance(combined);
         }
+        return { records: combined, total: combined.length };
       } catch {}
       return res.data;
+    }
+
+    // Fallback: If server endpoint is unreachable, pull directly from browser Supabase if configured
+    if (isBrowserSupabaseConfigured()) {
+      try {
+        const sbClient = getBrowserSupabaseClient();
+        if (sbClient) {
+          const { data: sbAtt } = await sbClient
+            .from('attendance')
+            .select('*')
+            .order('date', { ascending: false })
+            .limit(2000);
+
+          if (sbAtt && sbAtt.length > 0) {
+            const mapped: AttendanceRecord[] = sbAtt.map((r: any) => ({
+              id: r.id,
+              studentId: r.student_id || '',
+              nisn: String(r.nisn || '').trim(),
+              studentName: String(r.student_name || '').trim(),
+              classId: r.class_id || '',
+              className: r.class_name || '',
+              date: r.date,
+              time: r.time || '-',
+              status: r.status,
+              notes: r.notes || '',
+              recordedBy: r.recorded_by || 'System',
+              recordedByRole: r.recorded_by_role || 'guru',
+              checkOutTime: r.check_out_time || '-',
+              checkOutStatus: r.check_out_status || '-',
+              checkOutBy: r.check_out_by || '-'
+            }));
+            saveLocalAttendance(mapped);
+            return { records: mapped, total: mapped.length };
+          }
+        }
+      } catch (sbErr) {
+        console.warn('Error pulling attendance directly from browser Supabase:', sbErr);
+      }
     }
 
     let records = getLocalAttendance();
@@ -1291,45 +1385,60 @@ export const apiService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ records: recordsInput, date, recordedBy, recordedByRole })
     });
-    if (res.ok && res.data) {
-      return { success: true, message: res.data.message };
-    }
 
     const dateStr = date || getTodayWibDate();
-    const timeStr = new Date().toTimeString().split(' ')[0];
+    let timeStr = '07:00:00';
+    try {
+      timeStr = new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date()).replace(/\./g, ':');
+    } catch {
+      timeStr = new Date().toTimeString().split(' ')[0];
+    }
     const students = getLocalStudents();
     const currentRecords = getLocalAttendance();
+    const syncedRecords: AttendanceRecord[] = [];
 
     for (const item of recordsInput) {
-      const std = students.find(s => s.nisn === item.nisn);
-      if (!std) continue;
+      const cleanItemNisn = String(item.nisn).trim();
+      const std = students.find(s => (s.nisn || '').trim() === cleanItemNisn);
 
-      const idx = currentRecords.findIndex(r => r.nisn === item.nisn && (r.date === dateStr || isTodayRecord(r.date)));
+      const idx = currentRecords.findIndex(r => (r.nisn || '').trim() === cleanItemNisn && (r.date === dateStr || isTodayRecord(r.date)));
       if (idx !== -1) {
         currentRecords[idx].status = item.status;
-        currentRecords[idx].notes = item.notes || currentRecords[idx].notes;
+        currentRecords[idx].notes = item.notes !== undefined ? item.notes : currentRecords[idx].notes;
         currentRecords[idx].recordedBy = recordedBy || currentRecords[idx].recordedBy;
         currentRecords[idx].recordedByRole = recordedByRole || currentRecords[idx].recordedByRole;
-      } else {
-        currentRecords.push({
-          id: `att-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        syncedRecords.push(currentRecords[idx]);
+      } else if (std) {
+        const newRec: AttendanceRecord = {
+          id: `att-${dateStr}-${std.nisn}`,
           studentId: std.id,
           nisn: std.nisn,
           studentName: std.name,
           classId: std.classId,
           className: std.className,
           date: dateStr,
-          time: timeStr,
+          time: item.status === 'Hadir' ? timeStr : '-',
           status: item.status,
-          notes: item.notes,
+          notes: item.notes || '',
           recordedBy: recordedBy || 'Guru Kelas',
           recordedByRole: recordedByRole || 'guru'
-        });
+        };
+        currentRecords.unshift(newRec);
+        syncedRecords.push(newRec);
       }
     }
 
     saveLocalAttendance(currentRecords);
+    try {
+      await upsertAttendanceToBrowserSupabase(syncedRecords);
+    } catch (sbErr) {
+      console.warn('Notice upserting manual attendance to Supabase browser client:', sbErr);
+    }
     triggerAutoSupabaseSync();
+
+    if (res.ok && res.data) {
+      return { success: true, message: res.data.message };
+    }
 
     return { success: true, message: `Berhasil menyimpan presensi manual untuk ${recordsInput.length} siswa.` };
   },

@@ -380,23 +380,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
       }
 
-      const selectedClassObj = classes.find(c => c.id === studentForm.classId);
+      const selectedClassObj = classes.find(c => c.id === studentForm.classId) ||
+        classes.find(c => c.name.trim().toLowerCase() === (studentForm.className || '').trim().toLowerCase());
       const cleanBirthDate = studentForm.birthDate ? (normalizeDateToYMD(studentForm.birthDate) || studentForm.birthDate.trim()) : '';
+      const resolvedClassId = selectedClassObj?.id || studentForm.classId;
+      const resolvedClassName = selectedClassObj?.name || studentForm.className || '';
+
       const payload = {
         ...studentForm,
+        classId: resolvedClassId,
+        className: resolvedClassName,
         birthDate: cleanBirthDate,
-        className: selectedClassObj?.name || '',
         photoUrl: finalPhotoUrl
       };
 
       if (editingStudent) {
         const res = await apiService.updateStudent(editingStudent.id, payload);
         if (res.success) {
-          await onRefreshData();
           setShowStudentModal(false);
-          // If viewing a filtered class and the student moved to a different class, switch filter so the student is immediately visible
-          if (masterClassFilter !== 'all' && payload.classId && masterClassFilter !== payload.classId) {
-            setMasterClassFilter(payload.classId);
+          await onRefreshData();
+          // Switch filter to the new class so the student is immediately visible
+          if (resolvedClassId && masterClassFilter !== 'all') {
+            setMasterClassFilter(resolvedClassId);
           }
         } else {
           alert(res.error || 'Gagal mengubah data');
@@ -404,10 +409,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       } else {
         const res = await apiService.addStudent(payload);
         if (res.success) {
-          await onRefreshData();
           setShowStudentModal(false);
-          if (masterClassFilter !== 'all' && payload.classId && masterClassFilter !== payload.classId) {
-            setMasterClassFilter(payload.classId);
+          await onRefreshData();
+          if (resolvedClassId && masterClassFilter !== 'all') {
+            setMasterClassFilter(resolvedClassId);
           }
         } else {
           alert(res.error || 'Gagal menambah data');
@@ -423,11 +428,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Open Edit Student
   const handleOpenEditStudent = (st: Student) => {
     setEditingStudent(st);
+    const matchedClass = classes.find(c => c.id === st.classId) ||
+      classes.find(c => c.name.trim().toLowerCase() === (st.className || '').trim().toLowerCase());
     setStudentForm({
       nisn: st.nisn,
       name: st.name,
       gender: st.gender,
-      classId: st.classId,
+      classId: matchedClass?.id || st.classId,
+      className: matchedClass?.name || st.className || '',
       birthDate: st.birthDate ? (normalizeDateToYMD(st.birthDate) || st.birthDate) : '',
       address: st.address || '',
       parentName: st.parentName,
@@ -2437,7 +2445,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <label className="block font-bold text-slate-700 mb-1">Kelas*</label>
                   <select
                     value={studentForm.classId}
-                    onChange={(e) => setStudentForm({ ...studentForm, classId: e.target.value })}
+                    onChange={(e) => {
+                      const cid = e.target.value;
+                      const chosenClass = classes.find(c => c.id === cid);
+                      setStudentForm({ ...studentForm, classId: cid, className: chosenClass?.name || '' });
+                    }}
                     className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold"
                   >
                     {classes.map(c => (

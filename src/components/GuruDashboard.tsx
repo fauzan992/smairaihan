@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { User, Student, Teacher, AttendanceRecord, AttendanceStatus, ClassRoom } from '../types';
 import { apiService } from '../services/apiService';
 import { exportAttendanceToExcel } from '../utils/excelHelper';
@@ -64,7 +64,15 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
   }, [externalActiveTab]);
 
   // Class assignment filter (Guru defaults to assigned class or first class if unassigned)
-  const teacherClassId = user.classId || classes[0]?.id || '';
+  const [selectedClassId, setSelectedClassId] = useState<string>(() => user.classId || classes[0]?.id || '');
+
+  useEffect(() => {
+    if (!selectedClassId && (user.classId || classes[0]?.id)) {
+      setSelectedClassId(user.classId || classes[0]?.id || '');
+    }
+  }, [user.classId, classes, selectedClassId]);
+
+  const teacherClassId = selectedClassId || user.classId || classes[0]?.id || '';
   const currentClass = classes.find(c => c.id === teacherClassId);
 
   // Class students
@@ -73,9 +81,17 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
     (currentClass && s.className && s.className.trim().toLowerCase() === currentClass.name.trim().toLowerCase())
   ).sort((a, b) => a.name.localeCompare(b.name, 'id', { sensitivity: 'base' }));
 
+  const classStudentNisns = useMemo(() => new Set(classStudents.map(s => (s.nisn || '').trim())), [classStudents]);
+  const classStudentIds = useMemo(() => new Set(classStudents.map(s => (s.id || '').trim())), [classStudents]);
+
   const todayStr = getTodayWibDate();
   const todayRecords = attendanceRecords.filter(a =>
-    (a.classId === teacherClassId || (currentClass && a.className && a.className.trim().toLowerCase() === currentClass.name.trim().toLowerCase())) &&
+    (
+      a.classId === teacherClassId ||
+      (currentClass && a.className && a.className.trim().toLowerCase() === currentClass.name.trim().toLowerCase()) ||
+      classStudentNisns.has((a.nisn || '').trim()) ||
+      classStudentIds.has((a.studentId || '').trim())
+    ) &&
     isTodayRecord(a.date)
   );
 
@@ -83,7 +99,7 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
   const [rosterStatus, setRosterStatus] = useState<{ [nisn: string]: { status: AttendanceStatus; notes: string } }>(() => {
     const initialMap: { [nisn: string]: { status: AttendanceStatus; notes: string } } = {};
     classStudents.forEach(st => {
-      const existing = todayRecords.find(r => r.nisn === st.nisn);
+      const existing = todayRecords.find(r => (r.nisn || '').trim() === (st.nisn || '').trim());
       initialMap[st.nisn] = {
         status: existing ? existing.status : 'Hadir',
         notes: existing ? (existing.notes || '') : ''
@@ -91,6 +107,28 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
     });
     return initialMap;
   });
+
+  // Automatically update rosterStatus when new scans or attendance records arrive
+  useEffect(() => {
+    setRosterStatus(prev => {
+      const next = { ...prev };
+      classStudents.forEach(st => {
+        const existing = todayRecords.find(r => (r.nisn || '').trim() === (st.nisn || '').trim());
+        if (existing) {
+          next[st.nisn] = {
+            status: existing.status,
+            notes: existing.notes || ''
+          };
+        } else if (!next[st.nisn]) {
+          next[st.nisn] = {
+            status: 'Hadir',
+            notes: ''
+          };
+        }
+      });
+      return next;
+    });
+  }, [todayRecords, classStudents]);
 
   const [savingRoster, setSavingRoster] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
@@ -107,12 +145,14 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
   const classHistoryRecords = attendanceRecords.filter(rec => {
     // Validasi siswa terdaftar di Master Data Siswa
     const isMasterStudent = students.some(
-      s => s.id === rec.studentId || s.nisn === rec.nisn || (s.name && rec.studentName && s.name.trim().toLowerCase() === rec.studentName.trim().toLowerCase())
+      s => s.id === rec.studentId || (s.nisn && rec.nisn && s.nisn.trim() === rec.nisn.trim()) || (s.name && rec.studentName && s.name.trim().toLowerCase() === rec.studentName.trim().toLowerCase())
     );
     if (!isMasterStudent) return false;
 
     const matchClass = rec.classId === teacherClassId ||
-                       (currentClass && rec.className && rec.className.trim().toLowerCase() === currentClass.name.trim().toLowerCase());
+                       (currentClass && rec.className && rec.className.trim().toLowerCase() === currentClass.name.trim().toLowerCase()) ||
+                       classStudentNisns.has((rec.nisn || '').trim()) ||
+                       classStudentIds.has((rec.studentId || '').trim());
     const matchStatus = reportStatusFilter === 'all' || rec.status === reportStatusFilter;
     const matchStart = !reportStartDate || rec.date >= reportStartDate;
     const matchEnd = !reportEndDate || rec.date <= reportEndDate;
@@ -202,10 +242,28 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({
               DASHBOARD GURU / WALI KELAS
             </span>
             <h2 className="text-2xl font-black mt-2 tracking-tight">{user.name}</h2>
-            <p className="text-xs text-emerald-200/90 mt-1 font-medium">
-              NIP: <span className="font-mono font-bold text-amber-300">{user.nip || '-'}</span> • Kelas Binaan:{' '}
-              <strong className="text-slate-950 bg-amber-400 font-extrabold px-2.5 py-0.5 rounded-lg text-xs">{currentClass?.name || 'Umum'}</strong>
-            </p>
+            <div className="flex items-center gap-2 mt-1 flex-wrap text-xs text-emerald-200/90 font-medium">
+              <span>NIP: <span className="font-mono font-bold text-amber-300">{user.nip || '-'}</span></span>
+              <span>•</span>
+              <span className="flex items-center gap-1.5">
+                <span>Kelas Binaan:</span>
+                {classes.length > 1 ? (
+                  <select
+                    value={teacherClassId}
+                    onChange={(e) => setSelectedClassId(e.target.value)}
+                    className="bg-amber-400 text-slate-950 font-black px-2 py-0.5 rounded-lg text-xs border-none cursor-pointer focus:outline-none"
+                  >
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id} className="bg-white text-slate-900 font-bold">
+                        {c.name} {user.classId === c.id ? '(Wali Kelas)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <strong className="text-slate-950 bg-amber-400 font-extrabold px-2.5 py-0.5 rounded-lg text-xs">{currentClass?.name || 'Umum'}</strong>
+                )}
+              </span>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">

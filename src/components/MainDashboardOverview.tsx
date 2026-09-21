@@ -97,17 +97,19 @@ export const MainDashboardOverview: React.FC<MainDashboardOverviewProps> = ({
   // Selected date state for the dashboard:
   // Defaults to today if today has records, otherwise defaults to the latest active attendance date
   // so the user immediately sees the recorded student data!
+  const [userPickedDate, setUserPickedDate] = useState<boolean>(false);
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     return todayRecordsCount > 0 ? todayStr : latestRecordedDate;
   });
 
-  // Keep selectedDate updated if attendance data loads later or records arrive
+  // Keep selectedDate updated if attendance data loads later or records arrive for today
   useEffect(() => {
-    if (todayRecordsCount > 0 && selectedDate !== todayStr && selectedDate === latestRecordedDate) {
-      // If records arrive for today while viewing latest fallback, switch to today
+    if (todayRecordsCount > 0 && !userPickedDate) {
       setSelectedDate(todayStr);
+    } else if (todayRecordsCount === 0 && !userPickedDate && latestRecordedDate) {
+      setSelectedDate(latestRecordedDate);
     }
-  }, [todayRecordsCount, todayStr, latestRecordedDate]);
+  }, [todayRecordsCount, todayStr, userPickedDate, latestRecordedDate]);
 
   // Auto-polling every 15 seconds to fetch fresh attendance records
   useEffect(() => {
@@ -150,7 +152,7 @@ export const MainDashboardOverview: React.FC<MainDashboardOverviewProps> = ({
 
   // Selected Date Records matching selectedDate
   const currentRecords = useMemo(() => {
-    if (selectedDate === todayStr) {
+    if (selectedDate === todayStr || isTodayRecord(selectedDate)) {
       return validAttendanceRecords.filter(r => isTodayRecord(r.date));
     }
     return validAttendanceRecords.filter(r => {
@@ -418,7 +420,10 @@ export const MainDashboardOverview: React.FC<MainDashboardOverviewProps> = ({
           <div className="flex items-center gap-1.5 flex-wrap w-full md:w-auto">
             {/* Shortcut: Hari Ini */}
             <button
-              onClick={() => setSelectedDate(todayStr)}
+              onClick={() => {
+                setUserPickedDate(false);
+                setSelectedDate(todayStr);
+              }}
               className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
                 isViewingToday
                   ? 'bg-emerald-700 text-white shadow-xs'
@@ -435,7 +440,10 @@ export const MainDashboardOverview: React.FC<MainDashboardOverviewProps> = ({
             {/* Shortcut: Tanggal Terakhir Presensi (if different from today) */}
             {latestRecordedDate && latestRecordedDate !== todayStr && (
               <button
-                onClick={() => setSelectedDate(latestRecordedDate)}
+                onClick={() => {
+                  setUserPickedDate(true);
+                  setSelectedDate(latestRecordedDate);
+                }}
                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
                   isViewingLatest
                     ? 'bg-emerald-700 text-white shadow-xs'
@@ -457,7 +465,10 @@ export const MainDashboardOverview: React.FC<MainDashboardOverviewProps> = ({
                 type="date"
                 value={selectedDate}
                 onChange={(e) => {
-                  if (e.target.value) setSelectedDate(e.target.value);
+                  if (e.target.value) {
+                    setUserPickedDate(true);
+                    setSelectedDate(e.target.value);
+                  }
                 }}
                 className="bg-transparent text-slate-800 font-bold text-xs focus:outline-none cursor-pointer"
               />
@@ -507,7 +518,10 @@ export const MainDashboardOverview: React.FC<MainDashboardOverviewProps> = ({
               </span>
             </div>
             <button
-              onClick={() => setSelectedDate(todayStr)}
+              onClick={() => {
+                setUserPickedDate(false);
+                setSelectedDate(todayStr);
+              }}
               className="px-3 py-1 bg-white hover:bg-emerald-100 text-emerald-800 font-extrabold text-xs rounded-xl border border-emerald-200 transition-all cursor-pointer shrink-0"
             >
               Kembali ke Hari Ini
@@ -699,7 +713,10 @@ export const MainDashboardOverview: React.FC<MainDashboardOverviewProps> = ({
                 {isViewingToday && todayRecordsCount === 0 && (
                   <div className="pt-2">
                     <button
-                      onClick={() => setSelectedDate(latestRecordedDate)}
+                      onClick={() => {
+                        setUserPickedDate(true);
+                        setSelectedDate(latestRecordedDate);
+                      }}
                       className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer inline-flex items-center gap-1.5"
                     >
                       <Calendar className="w-3.5 h-3.5" />

@@ -44,6 +44,11 @@ export function getStoredSupabaseConfig(): ClientSupabaseConfig {
   };
 }
 
+export function isBrowserSupabaseConfigured(): boolean {
+  const cfg = getStoredSupabaseConfig();
+  return Boolean(cfg.url && cfg.anonKey);
+}
+
 // Save config to localStorage
 export function setStoredSupabaseConfig(url: string, anonKey: string, autoSync: boolean) {
   localStorage.setItem(STORAGE_KEY_URL, url.trim());
@@ -440,73 +445,90 @@ export async function upsertStudentToBrowserSupabase(student: Student): Promise<
   if (!supabase) return { success: false, error: 'Klien Supabase tidak aktif' };
   try {
     const formattedBirthDate = student.birthDate ? (normalizeDateToYMD(student.birthDate) || student.birthDate) : null;
-    const fullPayload: any = {
-      id: student.id,
-      nisn: String(student.nisn).trim(),
+    const trimmedNisn = String(student.nisn).trim();
+
+    // Standard payload with known verified Supabase schema columns
+    const standardPayload: any = {
       name: String(student.name).trim(),
       gender: student.gender || 'L',
       class_id: student.classId,
       class_name: student.className,
-      birth_date: formattedBirthDate,
-      address: student.address || null,
-      academic_year: student.academicYear || '2024/2025',
       parent_name: student.parentName || null,
       parent_phone: student.parentPhone || null,
-      photo_url: student.photoUrl || null,
       default_password: student.defaultPassword || '123'
     };
 
     // Strategy 1: Try updating by NISN first (primary unique key for students in school)
-    const { id, ...updatePayload } = fullPayload;
     let { error, data } = await supabase
       .from('students')
-      .update(updatePayload)
-      .eq('nisn', fullPayload.nisn)
+      .update(standardPayload)
+      .eq('nisn', trimmedNisn)
       .select('id');
 
     // Strategy 2: If no rows updated by NISN, try updating by ID
     if (!error && (!data || data.length === 0) && student.id) {
       const resById = await supabase
         .from('students')
-        .update(updatePayload)
+        .update(standardPayload)
         .eq('id', student.id)
         .select('id');
       error = resById.error;
       data = resById.data;
     }
 
-    // Strategy 3: If still not matched, try upserting
+    // Strategy 3: If still not matched, try upserting with id
     if (!error && (!data || data.length === 0)) {
-      const upsertRes = await supabase.from('students').upsert(fullPayload, { onConflict: 'id' }).select('id');
+      const upsertPayload = {
+        id: student.id || `std-${Date.now()}`,
+        nisn: trimmedNisn,
+        ...standardPayload
+      };
+      const upsertRes = await supabase.from('students').upsert(upsertPayload, { onConflict: 'id' }).select('id');
       error = upsertRes.error;
     }
 
-    // Strategy 4: If any schema/column mismatch error occurs, fallback to updating core columns only
+    // Strategy 4: If any schema/column mismatch error occurs, fallback to minimal columns
     if (error) {
-      console.warn('Supabase students update notice, attempting core columns fallback:', error.message);
-      const corePayload = {
-        name: fullPayload.name,
-        gender: fullPayload.gender,
-        class_id: fullPayload.class_id,
-        class_name: fullPayload.class_name
+      console.warn('Supabase students update notice, attempting minimal fallback:', error.message);
+      const minPayload = {
+        name: standardPayload.name,
+        gender: standardPayload.gender,
+        class_id: standardPayload.class_id,
+        class_name: standardPayload.class_name
       };
 
-      let coreRes = await supabase.from('students').update(corePayload).eq('nisn', fullPayload.nisn);
-      if (coreRes.error && student.id) {
-        coreRes = await supabase.from('students').update(corePayload).eq('id', student.id);
+      let minRes = await supabase.from('students').update(minPayload).eq('nisn', trimmedNisn);
+      if (minRes.error && student.id) {
+        minRes = await supabase.from('students').update(minPayload).eq('id', student.id);
       }
-      if (coreRes.error) {
-        console.error('Final fallback update to Supabase failed:', coreRes.error);
-        return { success: false, error: coreRes.error.message };
+      if (minRes.error) {
+        console.error('Final fallback update to Supabase failed:', minRes.error);
+        return { success: false, error: minRes.error.message };
       }
     }
 
-    // Strategy 5: Sync class student counts in Supabase
+    // Strategy 5: Try saving extended columns (birth_date, address, photo_url) if table supports them
     try {
-      if (student.classId) {
-        const { count } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('class_id', student.classId);
-        if (typeof count === 'number') {
-          await supabase.from('classes').update({ student_count: count }).eq('id', student.classId);
+      if (formattedBirthDate || student.address || student.photoUrl) {
+        await supabase.from('students').update({
+          birth_date: formattedBirthDate,
+          address: student.address || null,
+          photo_url: student.photoUrl || null
+        }).eq('nisn', trimmedNisn);
+      }
+    } catch {
+      // Optional schema columns, non-critical
+    }
+
+    // Strategy 6: Recalculate student counts for classes in Supabase
+    try {
+      const { data: allClasses } = await supabase.from('classes').select('id');
+      if (allClasses && allClasses.length > 0) {
+        for (const c of allClasses) {
+          const { count } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('class_id', c.id);
+          if (typeof count === 'number') {
+            await supabase.from('classes').update({ student_count: count }).eq('id', c.id);
+          }
         }
       }
     } catch {
@@ -579,5 +601,52 @@ export async function upsertSettingsToBrowserSupabase(settings: SchoolSettings) 
     await supabase.from('school_settings').upsert([settingsRow], { onConflict: 'id' });
   } catch (e) {
     console.warn('Error upserting settings to Supabase browser client:', e);
+  }
+}
+
+export async function upsertAttendanceToBrowserSupabase(
+  records: AttendanceRecord | AttendanceRecord[]
+): Promise<{ success: boolean; count?: number; error?: string }> {
+  const supabase = getBrowserSupabaseClient();
+  if (!supabase) return { success: false, error: 'Klien Supabase browser belum aktif' };
+
+  const recList = Array.isArray(records) ? records : [records];
+  if (recList.length === 0) return { success: true, count: 0 };
+
+  try {
+    const payload = recList.map(a => ({
+      id: a.id,
+      student_id: a.studentId || '',
+      nisn: String(a.nisn).trim(),
+      student_name: String(a.studentName || '').trim(),
+      class_id: a.classId || '',
+      class_name: a.className || '',
+      date: a.date,
+      time: a.time || '-',
+      status: a.status,
+      notes: a.notes || '',
+      recorded_by: a.recordedBy || 'System',
+      recorded_by_role: a.recordedByRole || 'guru',
+      check_out_time: a.checkOutTime || '-',
+      check_out_status: a.checkOutStatus || '-',
+      check_out_by: a.checkOutBy || '-'
+    }));
+
+    let { error } = await supabase.from('attendance').upsert(payload, { onConflict: 'id' });
+    if (error && error.message && (error.message.includes('check_out') || error.message.includes('recorded_by_role'))) {
+      const basicPayload = payload.map(({ check_out_time, check_out_status, check_out_by, recorded_by_role, ...rest }) => rest);
+      const retry = await supabase.from('attendance').upsert(basicPayload, { onConflict: 'id' });
+      error = retry.error;
+    }
+
+    if (error) {
+      console.warn('Error upserting attendance to Supabase browser:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, count: payload.length };
+  } catch (err: any) {
+    console.warn('Attendance upsert browser exception:', err);
+    return { success: false, error: err?.message };
   }
 }

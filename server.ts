@@ -23,6 +23,7 @@ import {
   deleteClassFromSupabase,
   deleteStudentFromSupabase,
   upsertStudentToSupabase,
+  upsertAttendanceToSupabase,
   getSupabaseClient,
   SUPABASE_SQL_SCHEMA
 } from './src/services/supabaseService';
@@ -97,11 +98,14 @@ teachersDB = initialSynced.teachers;
 // Helper to clean attendance records belonging to non-existent students (orphans / dummy)
 const cleanOrphanAttendance = () => {
   if (studentsDB && studentsDB.length > 0) {
-    const validNisns = new Set(studentsDB.map(s => s.nisn));
-    const validIds = new Set(studentsDB.map(s => s.id));
+    const validNisns = new Set(studentsDB.map(s => String(s.nisn || '').trim()));
+    const validIds = new Set(studentsDB.map(s => String(s.id || '').trim()));
     const validNames = new Set(studentsDB.map(s => (s.name || '').trim().toLowerCase()));
     attendanceDB = attendanceDB.filter(a =>
-      validNisns.has(a.nisn) || validIds.has(a.studentId) || (a.studentName && validNames.has(a.studentName.trim().toLowerCase()))
+      (a.nisn && validNisns.has(String(a.nisn).trim())) ||
+      (a.studentId && validIds.has(String(a.studentId).trim())) ||
+      (a.studentName && validNames.has(a.studentName.trim().toLowerCase())) ||
+      (a.studentName && a.studentName.trim().length > 0)
     );
   }
 };
@@ -518,7 +522,21 @@ async function startServer() {
   });
 
   // Get master data
-  app.get('/api/master/data', (req, res) => {
+  app.get('/api/master/data', async (req, res) => {
+    const cfg = loadSupabaseConfig();
+    if (cfg.url && cfg.anonKey && cfg.status === 'connected') {
+      try {
+        const pulled = await pullAllFromSupabase();
+        if (pulled.success && pulled.data) {
+          if (pulled.data.classes && pulled.data.classes.length > 0) classesDB = pulled.data.classes;
+          if (pulled.data.teachers && pulled.data.teachers.length > 0) teachersDB = pulled.data.teachers;
+          if (pulled.data.students && pulled.data.students.length > 0) studentsDB = pulled.data.students;
+        }
+      } catch (e) {
+        console.warn('Error syncing from Supabase on GET /api/master/data:', e);
+      }
+    }
+
     const synced = syncClassesAndStudentsData(classesDB, studentsDB, teachersDB);
     classesDB = synced.classes;
     studentsDB = synced.students;
@@ -532,7 +550,18 @@ async function startServer() {
   });
 
   // Student CRUD
-  app.get('/api/master/students', (req, res) => {
+  app.get('/api/master/students', async (req, res) => {
+    const cfg = loadSupabaseConfig();
+    if (cfg.url && cfg.anonKey && cfg.status === 'connected') {
+      try {
+        const pulled = await pullAllFromSupabase();
+        if (pulled.success && pulled.data?.students && pulled.data.students.length > 0) {
+          studentsDB = pulled.data.students;
+        }
+      } catch (e) {
+        console.warn('Error syncing from Supabase on GET /api/master/students:', e);
+      }
+    }
     res.json(studentsDB);
   });
 
@@ -587,6 +616,24 @@ async function startServer() {
 
     if (index === -1 && req.body.nisn) {
       index = studentsDB.findIndex(s => s.nisn === String(req.body.nisn).trim());
+    }
+
+    if (index === -1) {
+      // Pull fresh from Supabase if server memory was clean/restarted
+      const cfg = loadSupabaseConfig();
+      if (cfg.url && cfg.anonKey && cfg.status === 'connected') {
+        try {
+          const pulled = await pullAllFromSupabase();
+          if (pulled.success && pulled.data) {
+            if (pulled.data.classes && pulled.data.classes.length > 0) classesDB = pulled.data.classes;
+            if (pulled.data.teachers && pulled.data.teachers.length > 0) teachersDB = pulled.data.teachers;
+            if (pulled.data.students && pulled.data.students.length > 0) studentsDB = pulled.data.students;
+            index = studentsDB.findIndex(s => s.id === id || (req.body.nisn && s.nisn === String(req.body.nisn).trim()));
+          }
+        } catch (e) {
+          console.warn('Error pulling from Supabase in PUT /api/master/students/:id:', e);
+        }
+      }
     }
 
     if (index === -1) {
@@ -1066,14 +1113,15 @@ async function startServer() {
   });
 
   // Attendance Scanning & Recording
-  app.post('/api/attendance/scan', (req, res) => {
+  app.post('/api/attendance/scan', async (req, res) => {
     const { nisn, status = 'Hadir', notes = '', recordedBy = 'Sistem QR Code', recordedByRole = 'admin' } = req.body;
 
     if (!nisn) {
       return res.status(400).json({ error: 'Kode QR Code / NISN wajib diisi.' });
     }
 
-    const student = studentsDB.find(s => s.nisn.trim() === nisn.trim());
+    const cleanNisn = String(nisn).trim();
+    const student = studentsDB.find(s => s.nisn.trim() === cleanNisn);
     if (!student) {
       return res.status(444).json({ error: `NISN "${nisn}" tidak terdaftar di sistem SMA Islam Ra'iyatul Husnan!` });
     }
@@ -1131,6 +1179,14 @@ async function startServer() {
     }
 
     persistData();
+
+    // Directly await upsert to Supabase so deployed serverless instances and clients immediately see it
+    try {
+      await upsertAttendanceToSupabase(record);
+    } catch (sbErr) {
+      console.warn('[Supabase Sync Warning on Scan]:', sbErr);
+    }
+
     res.json({
       success: true,
       record,
@@ -1140,7 +1196,7 @@ async function startServer() {
   });
 
   // Bulk manual attendance submission
-  app.post('/api/attendance/manual', (req, res) => {
+  app.post('/api/attendance/manual', async (req, res) => {
     const { records, date, recordedBy, recordedByRole } = req.body;
     if (!Array.isArray(records)) {
       return res.status(400).json({ error: 'Format data presensi tidak valid.' });
@@ -1148,6 +1204,7 @@ async function startServer() {
 
     const targetDate = date || getTodayStr();
     const currentTime = getTimeStr();
+    const recordsToSync: AttendanceRecord[] = [];
 
     records.forEach((item: { nisn: string; status: any; notes?: string }) => {
       const student = studentsDB.find(s => s.nisn === item.nisn);
@@ -1163,8 +1220,9 @@ async function startServer() {
           recordedBy: recordedBy || 'Guru Kelas',
           recordedByRole: recordedByRole || 'guru'
         };
+        recordsToSync.push(attendanceDB[existingIndex]);
       } else {
-        attendanceDB.unshift({
+        const newRecord: AttendanceRecord = {
           id: `att-${targetDate}-${student.nisn}`,
           studentId: student.id,
           nisn: student.nisn,
@@ -1177,16 +1235,28 @@ async function startServer() {
           notes: item.notes || '',
           recordedBy: recordedBy || 'Guru Kelas',
           recordedByRole: recordedByRole || 'guru'
-        });
+        };
+        attendanceDB.unshift(newRecord);
+        recordsToSync.push(newRecord);
       }
     });
 
     persistData();
+
+    // Directly await upsert to Supabase so deployed serverless instances and clients immediately see it
+    try {
+      if (recordsToSync.length > 0) {
+        await upsertAttendanceToSupabase(recordsToSync);
+      }
+    } catch (sbErr) {
+      console.warn('[Supabase Sync Warning on Manual Attendance]:', sbErr);
+    }
+
     res.json({ success: true, message: `Presensi ${records.length} siswa berhasil disimpan.` });
   });
 
   // Bulk dismissal / checkout attendance submission (Absensi Pulang Jam Terakhir)
-  app.post('/api/attendance/checkout', (req, res) => {
+  app.post('/api/attendance/checkout', async (req, res) => {
     const { classId, date, recordedBy, students } = req.body;
     if (!Array.isArray(students)) {
       return res.status(400).json({ error: 'Data absensi jam pulang tidak valid.' });
@@ -1195,6 +1265,7 @@ async function startServer() {
     const targetDate = date || getTodayStr();
     const currentTime = getTimeStr();
     let updatedCount = 0;
+    const checkoutRecordsToSync: AttendanceRecord[] = [];
 
     students.forEach((item: { nisn: string; checkedOut: boolean; notes?: string }) => {
       const student = studentsDB.find(s => s.nisn === item.nisn);
@@ -1217,9 +1288,10 @@ async function startServer() {
             ? (attendanceDB[existingIndex].notes ? `${attendanceDB[existingIndex].notes} | Jam Pulang: ${item.notes}` : `Jam Pulang: ${item.notes}`)
             : attendanceDB[existingIndex].notes
         };
+        checkoutRecordsToSync.push(attendanceDB[existingIndex]);
         updatedCount++;
       } else {
-        attendanceDB.unshift({
+        const newAtt: AttendanceRecord = {
           id: `att-${targetDate}-${student.nisn}`,
           studentId: student.id,
           nisn: student.nisn,
@@ -1235,7 +1307,9 @@ async function startServer() {
           checkOutStatus: computedCheckOutStatus,
           checkOutBy: recordedBy || 'Guru Jam Terakhir',
           notes: item.notes ? `Jam Pulang: ${item.notes}` : ''
-        });
+        };
+        attendanceDB.unshift(newAtt);
+        checkoutRecordsToSync.push(newAtt);
         updatedCount++;
       }
     });
@@ -1244,6 +1318,15 @@ async function startServer() {
     const className = targetClass ? targetClass.name : '';
 
     persistData();
+
+    try {
+      if (checkoutRecordsToSync.length > 0) {
+        await upsertAttendanceToSupabase(checkoutRecordsToSync);
+      }
+    } catch (sbErr) {
+      console.warn('[Supabase Sync Warning on Checkout]:', sbErr);
+    }
+
     res.json({
       success: true,
       message: `Absensi jam pulang ${className ? 'Kelas ' + className : ''} (${updatedCount} siswa) berhasil disimpan pada pukul ${currentTime} WIB.`
@@ -1251,18 +1334,65 @@ async function startServer() {
   });
 
   // Get attendance records
-  app.get('/api/attendance', (req, res) => {
+  app.get('/api/attendance', async (req, res) => {
+    // Cross-instance and deployed synchronization:
+    // If Supabase is connected, pull latest records so serverless instances always reflect live scans & manual attendances
+    const cfg = loadSupabaseConfig();
+    if (cfg.url && cfg.anonKey && cfg.status === 'connected') {
+      try {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          const { data: remoteAtt, error: attErr } = await supabase
+            .from('attendance')
+            .select('*')
+            .order('date', { ascending: false })
+            .limit(2000);
+
+          if (!attErr && remoteAtt && remoteAtt.length > 0) {
+            const mappedRemote: AttendanceRecord[] = remoteAtt.map((r: any) => ({
+              id: r.id,
+              studentId: r.student_id || '',
+              nisn: String(r.nisn || '').trim(),
+              studentName: String(r.student_name || '').trim(),
+              classId: r.class_id || '',
+              className: r.class_name || '',
+              date: r.date,
+              time: r.time || '-',
+              status: r.status,
+              notes: r.notes || '',
+              recordedBy: r.recorded_by || 'System',
+              recordedByRole: r.recorded_by_role || 'guru',
+              checkOutTime: r.check_out_time || '-',
+              checkOutStatus: r.check_out_status || '-',
+              checkOutBy: r.check_out_by || '-'
+            }));
+
+            // Merge with in-memory DB: existing local records first, remote records overlay
+            const map = new Map<string, AttendanceRecord>();
+            attendanceDB.forEach(a => map.set(`${a.date}_${String(a.nisn).trim()}`, a));
+            mappedRemote.forEach(r => map.set(`${r.date}_${r.nisn}`, r));
+            attendanceDB = Array.from(map.values());
+          }
+        }
+      } catch (sbErr) {
+        console.warn('Error syncing attendance from Supabase on GET /api/attendance:', sbErr);
+      }
+    }
+
     cleanOrphanAttendance();
     const { classId, startDate, endDate, nisn, status, search } = req.query;
 
     let filtered = [...attendanceDB];
 
     if (studentsDB && studentsDB.length > 0) {
-      const validNisns = new Set(studentsDB.map(s => s.nisn));
-      const validIds = new Set(studentsDB.map(s => s.id));
+      const validNisns = new Set(studentsDB.map(s => String(s.nisn || '').trim()));
+      const validIds = new Set(studentsDB.map(s => String(s.id || '').trim()));
       const validNames = new Set(studentsDB.map(s => (s.name || '').trim().toLowerCase()));
       filtered = filtered.filter(a =>
-        validNisns.has(a.nisn) || validIds.has(a.studentId) || (a.studentName && validNames.has(a.studentName.trim().toLowerCase()))
+        (a.nisn && validNisns.has(String(a.nisn).trim())) ||
+        (a.studentId && validIds.has(String(a.studentId).trim())) ||
+        (a.studentName && validNames.has(a.studentName.trim().toLowerCase())) ||
+        (a.studentName && a.studentName.trim().length > 0)
       );
     }
 
@@ -1271,7 +1401,8 @@ async function startServer() {
     }
 
     if (nisn) {
-      filtered = filtered.filter(a => a.nisn === nisn);
+      const cleanNisn = String(nisn).trim();
+      filtered = filtered.filter(a => String(a.nisn).trim() === cleanNisn);
     }
 
     if (startDate) {
@@ -1287,8 +1418,12 @@ async function startServer() {
     }
 
     if (search) {
-      const q = (search as string).toLowerCase();
-      filtered = filtered.filter(a => a.studentName.toLowerCase().includes(q) || a.nisn.includes(q) || a.className.toLowerCase().includes(q));
+      const q = (search as string).toLowerCase().trim();
+      filtered = filtered.filter(a =>
+        (a.studentName && a.studentName.toLowerCase().includes(q)) ||
+        (a.nisn && a.nisn.includes(q)) ||
+        (a.className && a.className.toLowerCase().includes(q))
+      );
     }
 
     // Sort by date desc then time desc

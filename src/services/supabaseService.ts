@@ -59,6 +59,8 @@ export function saveSupabaseConfig(config: Partial<SupabaseConfig>): SupabaseCon
   return currentSupabaseConfig;
 }
 
+const FALLBACK_LOCAL_DB_PATH = path.join('/tmp', 'local-db.json');
+
 // Save Local DB backup
 export function saveLocalDBBackup(data: {
   classes: ClassRoom[];
@@ -72,7 +74,11 @@ export function saveLocalDBBackup(data: {
     ensureDataDir();
     fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
-    console.error('Error saving local db backup:', err);
+    try {
+      fs.writeFileSync(FALLBACK_LOCAL_DB_PATH, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (fallbackErr) {
+      console.error('Error saving local db backup:', err, fallbackErr);
+    }
   }
 }
 
@@ -89,6 +95,14 @@ export function readLocalDBBackup(): {
     ensureDataDir();
     if (fs.existsSync(LOCAL_DB_PATH)) {
       const content = fs.readFileSync(LOCAL_DB_PATH, 'utf-8');
+      return JSON.parse(content);
+    }
+  } catch (err) {
+    // try fallback
+  }
+  try {
+    if (fs.existsSync(FALLBACK_LOCAL_DB_PATH)) {
+      const content = fs.readFileSync(FALLBACK_LOCAL_DB_PATH, 'utf-8');
       return JSON.parse(content);
     }
   } catch (err) {
@@ -711,35 +725,31 @@ export async function upsertStudentToSupabase(student: Student): Promise<{ succe
   if (!supabase) return { success: false, error: 'Supabase server client not initialized' };
   try {
     const formattedBirthDate = student.birthDate ? (normalizeDateToYMD(student.birthDate) || student.birthDate) : null;
-    const fullPayload: any = {
-      id: student.id,
-      nisn: String(student.nisn).trim(),
+    const trimmedNisn = String(student.nisn).trim();
+
+    // Standard payload with verified Supabase schema columns
+    const standardPayload: any = {
       name: String(student.name).trim(),
       gender: student.gender || 'L',
       class_id: student.classId,
       class_name: student.className,
-      birth_date: formattedBirthDate,
-      address: student.address || null,
-      academic_year: student.academicYear || '2024/2025',
       parent_name: student.parentName || '',
       parent_phone: student.parentPhone || '',
-      photo_url: student.photoUrl || '',
       default_password: student.defaultPassword || '123'
     };
 
-    const { id, ...updatePayload } = fullPayload;
     // 1. Try update by NISN
     let { error, data } = await supabase
       .from('students')
-      .update(updatePayload)
-      .eq('nisn', fullPayload.nisn)
+      .update(standardPayload)
+      .eq('nisn', trimmedNisn)
       .select('id');
 
     // 2. If not found by NISN, try by ID
     if (!error && (!data || data.length === 0) && student.id) {
       const resById = await supabase
         .from('students')
-        .update(updatePayload)
+        .update(standardPayload)
         .eq('id', student.id)
         .select('id');
       error = resById.error;
@@ -748,20 +758,25 @@ export async function upsertStudentToSupabase(student: Student): Promise<{ succe
 
     // 3. If still not matched, try upsert
     if (!error && (!data || data.length === 0)) {
-      const upsertRes = await supabase.from('students').upsert(fullPayload, { onConflict: 'id' }).select('id');
+      const upsertPayload = {
+        id: student.id || `std-${Date.now()}`,
+        nisn: trimmedNisn,
+        ...standardPayload
+      };
+      const upsertRes = await supabase.from('students').upsert(upsertPayload, { onConflict: 'id' }).select('id');
       error = upsertRes.error;
     }
 
-    // 4. Schema-resilient fallback: update core columns
+    // 4. Schema-resilient fallback: update minimal core columns
     if (error) {
       console.warn('[Supabase Server] Notice updating student, retrying with core columns:', error.message);
       const corePayload = {
-        name: fullPayload.name,
-        gender: fullPayload.gender,
-        class_id: fullPayload.class_id,
-        class_name: fullPayload.class_name
+        name: standardPayload.name,
+        gender: standardPayload.gender,
+        class_id: standardPayload.class_id,
+        class_name: standardPayload.class_name
       };
-      let coreRes = await supabase.from('students').update(corePayload).eq('nisn', fullPayload.nisn);
+      let coreRes = await supabase.from('students').update(corePayload).eq('nisn', trimmedNisn);
       if (coreRes.error && student.id) {
         coreRes = await supabase.from('students').update(corePayload).eq('id', student.id);
       }
@@ -771,12 +786,28 @@ export async function upsertStudentToSupabase(student: Student): Promise<{ succe
       }
     }
 
-    // 5. Sync class student_count in Supabase
+    // 5. Try optional columns if supported
     try {
-      if (student.classId) {
-        const { count } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('class_id', student.classId);
-        if (typeof count === 'number') {
-          await supabase.from('classes').update({ student_count: count }).eq('id', student.classId);
+      if (formattedBirthDate || student.address || student.photoUrl) {
+        await supabase.from('students').update({
+          birth_date: formattedBirthDate,
+          address: student.address || null,
+          photo_url: student.photoUrl || null
+        }).eq('nisn', trimmedNisn);
+      }
+    } catch {
+      // Optional columns
+    }
+
+    // 6. Recalculate student counts for classes in Supabase
+    try {
+      const { data: allClasses } = await supabase.from('classes').select('id');
+      if (allClasses && allClasses.length > 0) {
+        for (const c of allClasses) {
+          const { count } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('class_id', c.id);
+          if (typeof count === 'number') {
+            await supabase.from('classes').update({ student_count: count }).eq('id', c.id);
+          }
         }
       }
     } catch {}
@@ -796,5 +827,52 @@ export async function deleteStudentFromSupabase(id: string, nisn?: string) {
     if (nisn) await supabase.from('students').delete().eq('nisn', nisn);
   } catch (err) {
     console.error('Error deleting student from Supabase:', err);
+  }
+}
+
+export async function upsertAttendanceToSupabase(
+  records: AttendanceRecord | AttendanceRecord[]
+): Promise<{ success: boolean; count?: number; error?: string }> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return { success: false, error: 'Supabase client not initialized' };
+
+  const recList = Array.isArray(records) ? records : [records];
+  if (recList.length === 0) return { success: true, count: 0 };
+
+  try {
+    const payload = recList.map(a => ({
+      id: a.id,
+      student_id: a.studentId || '',
+      nisn: String(a.nisn).trim(),
+      student_name: String(a.studentName || '').trim(),
+      class_id: a.classId || '',
+      class_name: a.className || '',
+      date: a.date,
+      time: a.time || '-',
+      status: a.status,
+      notes: a.notes || '',
+      recorded_by: a.recordedBy || 'System',
+      recorded_by_role: a.recordedByRole || 'guru',
+      check_out_time: a.checkOutTime || '-',
+      check_out_status: a.checkOutStatus || '-',
+      check_out_by: a.checkOutBy || '-'
+    }));
+
+    let { error } = await supabase.from('attendance').upsert(payload, { onConflict: 'id' });
+    if (error && error.message && (error.message.includes('check_out') || error.message.includes('recorded_by_role'))) {
+      const basicPayload = payload.map(({ check_out_time, check_out_status, check_out_by, recorded_by_role, ...rest }) => rest);
+      const retry = await supabase.from('attendance').upsert(basicPayload, { onConflict: 'id' });
+      error = retry.error;
+    }
+
+    if (error) {
+      console.error('[Supabase Server] Error upserting attendance:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, count: payload.length };
+  } catch (err: any) {
+    console.error('[Supabase Server] Attendance upsert exception:', err);
+    return { success: false, error: err?.message };
   }
 }
