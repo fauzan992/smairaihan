@@ -435,15 +435,15 @@ export async function deleteStudentFromBrowserSupabase(id: string, nisn?: string
   }
 }
 
-export async function upsertStudentToBrowserSupabase(student: Student) {
+export async function upsertStudentToBrowserSupabase(student: Student): Promise<{ success: boolean; error?: string }> {
   const supabase = getBrowserSupabaseClient();
-  if (!supabase) return;
+  if (!supabase) return { success: false, error: 'Klien Supabase tidak aktif' };
   try {
     const formattedBirthDate = student.birthDate ? (normalizeDateToYMD(student.birthDate) || student.birthDate) : null;
-    const payload: any = {
+    const fullPayload: any = {
       id: student.id,
-      nisn: student.nisn,
-      name: student.name,
+      nisn: String(student.nisn).trim(),
+      name: String(student.name).trim(),
       gender: student.gender || 'L',
       class_id: student.classId,
       class_name: student.className,
@@ -456,22 +456,67 @@ export async function upsertStudentToBrowserSupabase(student: Student) {
       default_password: student.defaultPassword || '123'
     };
 
-    let { error } = await supabase.from('students').upsert(payload, { onConflict: 'id' });
-    if (error && (error.code === '23505' || (error.message && error.message.includes('nisn')))) {
-      const { id, ...payloadWithoutId } = payload;
-      const res = await supabase.from('students').update(payloadWithoutId).eq('nisn', student.nisn);
-      error = res.error;
+    // Strategy 1: Try updating by NISN first (primary unique key for students in school)
+    const { id, ...updatePayload } = fullPayload;
+    let { error, data } = await supabase
+      .from('students')
+      .update(updatePayload)
+      .eq('nisn', fullPayload.nisn)
+      .select('id');
+
+    // Strategy 2: If no rows updated by NISN, try updating by ID
+    if (!error && (!data || data.length === 0) && student.id) {
+      const resById = await supabase
+        .from('students')
+        .update(updatePayload)
+        .eq('id', student.id)
+        .select('id');
+      error = resById.error;
+      data = resById.data;
     }
-    if (error && error.message && (error.message.includes('photo_url') || error.message.includes('academic_year'))) {
-      const { photo_url, academic_year, ...basicPayload } = payload;
-      let res = await supabase.from('students').upsert(basicPayload, { onConflict: 'id' });
-      if (res.error && (res.error.code === '23505' || res.error.message.includes('nisn'))) {
-        const { id, ...basicWithoutId } = basicPayload;
-        await supabase.from('students').update(basicWithoutId).eq('nisn', student.nisn);
+
+    // Strategy 3: If still not matched, try upserting
+    if (!error && (!data || data.length === 0)) {
+      const upsertRes = await supabase.from('students').upsert(fullPayload, { onConflict: 'id' }).select('id');
+      error = upsertRes.error;
+    }
+
+    // Strategy 4: If any schema/column mismatch error occurs, fallback to updating core columns only
+    if (error) {
+      console.warn('Supabase students update notice, attempting core columns fallback:', error.message);
+      const corePayload = {
+        name: fullPayload.name,
+        gender: fullPayload.gender,
+        class_id: fullPayload.class_id,
+        class_name: fullPayload.class_name
+      };
+
+      let coreRes = await supabase.from('students').update(corePayload).eq('nisn', fullPayload.nisn);
+      if (coreRes.error && student.id) {
+        coreRes = await supabase.from('students').update(corePayload).eq('id', student.id);
+      }
+      if (coreRes.error) {
+        console.error('Final fallback update to Supabase failed:', coreRes.error);
+        return { success: false, error: coreRes.error.message };
       }
     }
-  } catch (e) {
+
+    // Strategy 5: Sync class student counts in Supabase
+    try {
+      if (student.classId) {
+        const { count } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('class_id', student.classId);
+        if (typeof count === 'number') {
+          await supabase.from('classes').update({ student_count: count }).eq('id', student.classId);
+        }
+      }
+    } catch {
+      // Non-critical, ignore count sync error
+    }
+
+    return { success: true };
+  } catch (e: any) {
     console.warn('Error upserting student to Supabase browser client:', e);
+    return { success: false, error: e?.message };
   }
 }
 

@@ -34,7 +34,7 @@ interface AdminDashboardProps {
   classes: ClassRoom[];
   attendanceRecords: AttendanceRecord[];
   bkNotes?: BKNote[];
-  onRefreshData: () => void;
+  onRefreshData: () => void | Promise<void>;
   externalActiveTab?: 'dashboard' | 'master' | 'discipline' | 'bk' | 'teacherAdmin' | 'scan' | 'reports' | 'import' | 'settings';
   externalMasterSubTab?: 'students' | 'teachers' | 'classes' | 'guardians' | 'subjects';
   onTabChange?: (tab: 'dashboard' | 'master' | 'discipline' | 'bk' | 'teacherAdmin' | 'scan' | 'reports' | 'import' | 'settings', subTab?: 'students' | 'teachers' | 'classes' | 'guardians' | 'subjects') => void;
@@ -392,16 +392,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (editingStudent) {
         const res = await apiService.updateStudent(editingStudent.id, payload);
         if (res.success) {
-          onRefreshData();
+          await onRefreshData();
           setShowStudentModal(false);
+          // If viewing a filtered class and the student moved to a different class, switch filter so the student is immediately visible
+          if (masterClassFilter !== 'all' && payload.classId && masterClassFilter !== payload.classId) {
+            setMasterClassFilter(payload.classId);
+          }
         } else {
           alert(res.error || 'Gagal mengubah data');
         }
       } else {
         const res = await apiService.addStudent(payload);
         if (res.success) {
-          onRefreshData();
+          await onRefreshData();
           setShowStudentModal(false);
+          if (masterClassFilter !== 'all' && payload.classId && masterClassFilter !== payload.classId) {
+            setMasterClassFilter(payload.classId);
+          }
         } else {
           alert(res.error || 'Gagal menambah data');
         }

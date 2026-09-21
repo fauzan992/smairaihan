@@ -136,6 +136,14 @@ const PORT = 3000;
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Prevent caching for all API responses so deployed reverse proxies and browsers always get fresh data
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 async function startServer() {
 
   // Helper for current date in YYYY-MM-DD (Asia/Jakarta / WIB)
@@ -573,7 +581,7 @@ async function startServer() {
     res.json({ success: true, student: newStudent, message: 'Data siswa berhasil ditambahkan!' });
   });
 
-  app.put('/api/master/students/:id', (req, res) => {
+  app.put('/api/master/students/:id', async (req, res) => {
     const { id } = req.params;
     let index = studentsDB.findIndex(s => s.id === id);
 
@@ -597,8 +605,30 @@ async function startServer() {
       return res.status(404).json({ error: 'Siswa tidak ditemukan.' });
     }
 
-    const { nisn, name, gender, classId, birthDate, address, parentName, parentPhone, photoUrl, academicYear } = req.body;
-    const selectedClass = classesDB.find(c => c.id === classId);
+    const { nisn, name, gender, classId, className, birthDate, address, parentName, parentPhone, photoUrl, academicYear } = req.body;
+    
+    // Robustly resolve the destination class by ID or Name
+    const targetClassName = className ? String(className).trim() : '';
+    let selectedClass = classesDB.find(c => c.id === classId);
+    if (!selectedClass && targetClassName) {
+      selectedClass = classesDB.find(c => c.name.trim().toLowerCase() === targetClassName.toLowerCase());
+    }
+    if (!selectedClass && (targetClassName || classId)) {
+      selectedClass = findMatchingClass(targetClassName, classId, classesDB);
+    }
+    if (!selectedClass && targetClassName) {
+      const gradeLevel = inferGradeLevel(targetClassName);
+      selectedClass = {
+        id: classId || `cls-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        name: targetClassName,
+        gradeLevel: gradeLevel,
+        studentCount: 0
+      };
+      classesDB.push(selectedClass);
+    }
+
+    const finalClassId = selectedClass ? selectedClass.id : (classId || studentsDB[index].classId);
+    const finalClassName = selectedClass ? selectedClass.name : (targetClassName || studentsDB[index].className);
 
     // Handle birthDate: if explicitly passed as empty string or null, clear it; if valid date, normalize it
     let cleanBirthDate: string | undefined = studentsDB[index].birthDate;
@@ -615,8 +645,8 @@ async function startServer() {
       nisn: nisn ? String(nisn).trim() : studentsDB[index].nisn,
       name: name ? String(name).trim() : studentsDB[index].name,
       gender: gender || studentsDB[index].gender,
-      classId: classId || studentsDB[index].classId,
-      className: selectedClass ? selectedClass.name : studentsDB[index].className,
+      classId: finalClassId,
+      className: finalClassName,
       birthDate: cleanBirthDate,
       address: address !== undefined ? (address ? String(address).trim() : undefined) : studentsDB[index].address,
       academicYear: academicYear ? String(academicYear).trim() : (studentsDB[index].academicYear || '2024/2025'),
@@ -625,15 +655,31 @@ async function startServer() {
       photoUrl: photoUrl !== undefined ? photoUrl : studentsDB[index].photoUrl
     };
 
-    // Update counts
+    // Update student's attendance records to reflect the new class
+    attendanceDB = attendanceDB.map(a => {
+      if (a.studentId === id || a.nisn === studentsDB[index].nisn) {
+        return {
+          ...a,
+          classId: finalClassId,
+          className: finalClassName
+        };
+      }
+      return a;
+    });
+
+    // Update counts for all classes
     classesDB.forEach(c => {
-      c.studentCount = studentsDB.filter(s => s.classId === c.id).length;
+      c.studentCount = studentsDB.filter(s => s.classId === c.id || (c.name && s.className && s.className.trim().toLowerCase() === c.name.trim().toLowerCase())).length;
     });
 
     persistData();
 
-    // Sync to Supabase if connected
-    upsertStudentToSupabase(studentsDB[index]).catch(e => console.error('Error updating student in Supabase:', e));
+    // Await sync to Supabase if connected
+    try {
+      await upsertStudentToSupabase(studentsDB[index]);
+    } catch (e) {
+      console.error('Error updating student in Supabase:', e);
+    }
 
     res.json({ success: true, student: studentsDB[index], message: 'Data siswa berhasil diperbarui!' });
   });

@@ -7,7 +7,17 @@ import { normalizeDateToYMD, isStudentNameMatch, isStudentBirthDateMatch, getTod
 // Safe JSON fetch wrapper that checks Content-Type to prevent HTML "Unexpected token T" errors on Vercel
 async function safeFetchJson<T = any>(url: string, options?: RequestInit): Promise<{ ok: boolean; status: number; data?: T; isHtml?: boolean; error?: string }> {
   try {
-    const res = await fetch(url, options);
+    const headers = new Headers(options?.headers);
+    if (!headers.has('Cache-Control')) {
+      headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+      headers.set('Pragma', 'no-cache');
+    }
+    const finalOptions: RequestInit = {
+      ...options,
+      headers,
+      cache: 'no-store'
+    };
+    const res = await fetch(url, finalOptions);
     const contentType = res.headers.get('content-type') || '';
 
     if (!contentType.includes('application/json')) {
@@ -622,7 +632,7 @@ export const apiService = {
     // Automatically ensure client has active Supabase credentials from server
     syncSupabaseCredentialsWithServer().catch(() => {});
 
-    const res = await safeFetchJson<{ classes: ClassRoom[]; teachers: Teacher[]; students: Student[] }>('/api/master/data');
+    const res = await safeFetchJson<{ classes: ClassRoom[]; teachers: Teacher[]; students: Student[] }>(`/api/master/data?t=${Date.now()}`);
     if (res.ok && res.data) {
       const synced = syncClassesAndStudentsData(res.data.classes || [], res.data.students || [], res.data.teachers || []);
       // Sync local storage cache for offline / fallback
@@ -732,7 +742,26 @@ export const apiService = {
           students.push(updatedStudent);
         }
         saveLocalStudents(students);
-        upsertStudentToBrowserSupabase(updatedStudent);
+
+        // Update local classes studentCount
+        const localClasses = getLocalClasses();
+        const updatedLocalClasses = localClasses.map(c => ({
+          ...c,
+          studentCount: students.filter(s => s.classId === c.id || (c.name && s.className && s.className.trim().toLowerCase() === c.name.trim().toLowerCase())).length
+        }));
+        saveLocalClasses(updatedLocalClasses);
+
+        // Update local attendance records for this student to reflect new class
+        const localAtt = getLocalAttendance();
+        const updatedAtt = localAtt.map(a => (a.nisn === updatedStudent.nisn || a.studentId === updatedStudent.id) ? { ...a, classId: updatedStudent.classId, className: updatedStudent.className } : a);
+        saveLocalAttendance(updatedAtt);
+
+        // Await Supabase sync before returning so client pulls fresh data
+        try {
+          await upsertStudentToBrowserSupabase(updatedStudent);
+        } catch (sbErr) {
+          console.warn('Supabase browser sync notice in updateStudent:', sbErr);
+        }
       }
       return { success: true, student: updatedStudent, message: res.data.message };
     }
@@ -746,7 +775,25 @@ export const apiService = {
         birthDate: cleanBirthDate !== undefined ? (cleanBirthDate || undefined) : students[idx].birthDate
       };
       saveLocalStudents(students);
-      upsertStudentToBrowserSupabase(students[idx]);
+
+      // Update local classes studentCount
+      const localClasses = getLocalClasses();
+      const updatedLocalClasses = localClasses.map(c => ({
+        ...c,
+        studentCount: students.filter(s => s.classId === c.id || (c.name && s.className && s.className.trim().toLowerCase() === c.name.trim().toLowerCase())).length
+      }));
+      saveLocalClasses(updatedLocalClasses);
+
+      // Update local attendance records for this student to reflect new class
+      const localAtt = getLocalAttendance();
+      const updatedAtt = localAtt.map(a => (a.nisn === students[idx].nisn || a.studentId === students[idx].id) ? { ...a, classId: students[idx].classId, className: students[idx].className } : a);
+      saveLocalAttendance(updatedAtt);
+
+      try {
+        await upsertStudentToBrowserSupabase(students[idx]);
+      } catch (sbErr) {
+        console.warn('Supabase browser sync notice in updateStudent fallback:', sbErr);
+      }
       triggerAutoSupabaseSync();
       return { success: true, student: students[idx], message: 'Data siswa berhasil diperbarui.' };
     }

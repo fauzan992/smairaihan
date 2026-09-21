@@ -19,17 +19,27 @@ export function findMatchingClass(
 ): ClassRoom | undefined {
   if (!classes || classes.length === 0) return undefined;
 
-  // 1. Match by classId
+  const raw = className ? className.trim() : '';
+  const rawLower = raw.toLowerCase();
+  const norm = raw ? normalizeClassName(raw) : '';
+
+  // 1. Check if classId matches
   if (classId) {
     const foundById = classes.find(c => c.id === classId);
-    if (foundById) return foundById;
+    if (foundById) {
+      if (!raw) return foundById;
+      // If className matches foundById, return it
+      if (foundById.name.trim().toLowerCase() === rawLower || (norm && normalizeClassName(foundById.name) === norm)) {
+        return foundById;
+      }
+      // If className explicitly matches a different class, the user/admin likely changed className
+      const classByName = classes.find(c => c.name.trim().toLowerCase() === rawLower || (norm && normalizeClassName(c.name) === norm));
+      if (classByName) return classByName;
+      return foundById;
+    }
   }
 
-  if (!className || !className.trim()) return undefined;
-
-  const raw = className.trim();
-  const rawLower = raw.toLowerCase();
-  const norm = normalizeClassName(raw);
+  if (!raw) return undefined;
 
   // 2. Exact match (case-insensitive & trimmed)
   const exact = classes.find(c => c.name.trim().toLowerCase() === rawLower);

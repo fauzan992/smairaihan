@@ -706,45 +706,85 @@ export async function deleteClassFromSupabase(id: string) {
   }
 }
 
-export async function upsertStudentToSupabase(student: Student) {
+export async function upsertStudentToSupabase(student: Student): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseClient();
-  if (!supabase) return;
+  if (!supabase) return { success: false, error: 'Supabase server client not initialized' };
   try {
     const formattedBirthDate = student.birthDate ? (normalizeDateToYMD(student.birthDate) || student.birthDate) : null;
-    const payload: any = {
+    const fullPayload: any = {
       id: student.id,
-      nisn: student.nisn,
-      name: student.name,
+      nisn: String(student.nisn).trim(),
+      name: String(student.name).trim(),
       gender: student.gender || 'L',
       class_id: student.classId,
       class_name: student.className,
       birth_date: formattedBirthDate,
       address: student.address || null,
+      academic_year: student.academicYear || '2024/2025',
       parent_name: student.parentName || '',
       parent_phone: student.parentPhone || '',
       photo_url: student.photoUrl || '',
       default_password: student.defaultPassword || '123'
     };
-    let { error } = await supabase.from('students').upsert(payload, { onConflict: 'id' });
-    if (error && (error.code === '23505' || (error.message && error.message.includes('nisn')))) {
-      // Conflict on nisn unique constraint - update by nisn
-      const { id, ...payloadWithoutId } = payload;
-      const res = await supabase.from('students').update(payloadWithoutId).eq('nisn', student.nisn);
-      error = res.error;
+
+    const { id, ...updatePayload } = fullPayload;
+    // 1. Try update by NISN
+    let { error, data } = await supabase
+      .from('students')
+      .update(updatePayload)
+      .eq('nisn', fullPayload.nisn)
+      .select('id');
+
+    // 2. If not found by NISN, try by ID
+    if (!error && (!data || data.length === 0) && student.id) {
+      const resById = await supabase
+        .from('students')
+        .update(updatePayload)
+        .eq('id', student.id)
+        .select('id');
+      error = resById.error;
+      data = resById.data;
     }
-    if (error && error.message && error.message.includes('photo_url')) {
-      const { photo_url, ...noPhoto } = payload;
-      let res = await supabase.from('students').upsert(noPhoto, { onConflict: 'id' });
-      if (res.error && (res.error.code === '23505' || res.error.message.includes('nisn'))) {
-        const { id, ...noPhotoNoId } = noPhoto;
-        await supabase.from('students').update(noPhotoNoId).eq('nisn', student.nisn);
+
+    // 3. If still not matched, try upsert
+    if (!error && (!data || data.length === 0)) {
+      const upsertRes = await supabase.from('students').upsert(fullPayload, { onConflict: 'id' }).select('id');
+      error = upsertRes.error;
+    }
+
+    // 4. Schema-resilient fallback: update core columns
+    if (error) {
+      console.warn('[Supabase Server] Notice updating student, retrying with core columns:', error.message);
+      const corePayload = {
+        name: fullPayload.name,
+        gender: fullPayload.gender,
+        class_id: fullPayload.class_id,
+        class_name: fullPayload.class_name
+      };
+      let coreRes = await supabase.from('students').update(corePayload).eq('nisn', fullPayload.nisn);
+      if (coreRes.error && student.id) {
+        coreRes = await supabase.from('students').update(corePayload).eq('id', student.id);
+      }
+      if (coreRes.error) {
+        console.error('[Supabase Server] Core update failed:', coreRes.error);
+        return { success: false, error: coreRes.error.message };
       }
     }
-    if (error) {
-      console.warn('Upsert student to Supabase notice:', error.message);
-    }
-  } catch (err) {
+
+    // 5. Sync class student_count in Supabase
+    try {
+      if (student.classId) {
+        const { count } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('class_id', student.classId);
+        if (typeof count === 'number') {
+          await supabase.from('classes').update({ student_count: count }).eq('id', student.classId);
+        }
+      }
+    } catch {}
+
+    return { success: true };
+  } catch (err: any) {
     console.error('Error upserting student to Supabase:', err);
+    return { success: false, error: err?.message };
   }
 }
 
