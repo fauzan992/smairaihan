@@ -25,6 +25,7 @@ import {
   upsertStudentToSupabase,
   upsertAttendanceToSupabase,
   getSupabaseClient,
+  decodeStudentFromSupabaseRow,
   SUPABASE_SQL_SCHEMA
 } from './src/services/supabaseService';
 import { syncClassesAndStudentsData, findMatchingClass, inferGradeLevel } from './src/utils/dataSync';
@@ -467,21 +468,7 @@ async function startServer() {
         if (supabase) {
           const { data: supaStudents } = await supabase.from('students').select('*');
           if (supaStudents && supaStudents.length > 0) {
-            const mappedSupa: Student[] = supaStudents.map((s: any) => ({
-              id: s.id,
-              nisn: s.nisn,
-              name: s.name,
-              gender: s.gender || 'L',
-              classId: s.class_id,
-              className: s.class_name,
-              birthDate: s.birth_date || s.birthDate || undefined,
-              address: s.address || undefined,
-              academicYear: s.academic_year || s.academicYear || '2024/2025',
-              parentName: s.parent_name || undefined,
-              parentPhone: s.parent_phone || undefined,
-              photoUrl: s.photo_url || undefined,
-              defaultPassword: s.default_password || '123'
-            }));
+            const mappedSupa: Student[] = supaStudents.map((s: any) => decodeStudentFromSupabaseRow(s));
             matched = performMatch(mappedSupa);
             if (matched && !studentsDB.some(s => s.id === matched!.id)) {
               studentsDB.push(matched);
@@ -1436,7 +1423,7 @@ async function startServer() {
   });
 
   // Import Batch Students
-  app.post('/api/import/students', (req, res) => {
+  app.post('/api/import/students', async (req, res) => {
     const { students } = req.body;
     if (!Array.isArray(students) || students.length === 0) {
       return res.status(400).json({ error: 'Data import siswa kosong atau tidak valid.' });
@@ -1446,9 +1433,11 @@ async function startServer() {
     let updatedCount = 0;
     let createdClassesCount = 0;
     const newlyCreatedClassNames: string[] = [];
+    const batchTs = Date.now().toString().slice(-5);
 
     students.forEach((item, itemIdx) => {
-      if (!item.nisn || !item.name) return;
+      const cleanName = String(item.name || '').trim();
+      if (!cleanName) return;
 
       const rawClassName = String(item.className || item.class || item.NamaKelas || item['Nama Kelas'] || item['Kelas'] || '').trim();
       let cls = findMatchingClass(rawClassName, item.classId, classesDB);
@@ -1470,16 +1459,33 @@ async function startServer() {
       }
 
       const genderCode: 'L' | 'P' = (String(item.gender || '').trim().toUpperCase().startsWith('P') || item.gender === 'Perempuan') ? 'P' : 'L';
-      const cleanNisn = String(item.nisn).trim();
-      const cleanBirthDate = item.birthDate ? String(item.birthDate).trim() : undefined;
+      let cleanNisn = String(item.nisn || '').replace(/^['`]+/, '').trim();
+      if (!cleanNisn || cleanNisn === '-' || cleanNisn === '0') {
+        cleanNisn = `NIS${batchTs}${String(itemIdx + 1).padStart(3, '0')}`;
+      }
+
+      const cleanBirthDate = item.birthDate ? (normalizeDateToYMD(item.birthDate) || String(item.birthDate).trim()) : undefined;
       const cleanAddress = item.address ? String(item.address).trim() : undefined;
       const cleanAcademicYear = item.academicYear ? String(item.academicYear).trim() : '2024/2025';
 
-      const existingIndex = studentsDB.findIndex(s => s.nisn === cleanNisn);
+      let existingIndex = studentsDB.findIndex(s => s.nisn === cleanNisn);
+      if (existingIndex === -1 && item.id) {
+        existingIndex = studentsDB.findIndex(s => s.id === item.id);
+      }
+      if (existingIndex === -1 && cleanNisn.startsWith('NIS')) {
+        existingIndex = studentsDB.findIndex(
+          s => s.name.trim().toLowerCase() === cleanName.toLowerCase() &&
+               (cls ? s.classId === cls.id || s.className.toLowerCase() === cls.name.toLowerCase() : true)
+        );
+      }
+
       if (existingIndex !== -1) {
         studentsDB[existingIndex] = {
           ...studentsDB[existingIndex],
-          name: String(item.name).trim() || studentsDB[existingIndex].name,
+          nisn: cleanNisn.startsWith('NIS') && studentsDB[existingIndex].nisn && !studentsDB[existingIndex].nisn.startsWith('NIS')
+            ? studentsDB[existingIndex].nisn
+            : cleanNisn,
+          name: cleanName || studentsDB[existingIndex].name,
           gender: genderCode,
           classId: cls ? cls.id : studentsDB[existingIndex].classId,
           className: cls ? cls.name : studentsDB[existingIndex].className,
@@ -1490,15 +1496,14 @@ async function startServer() {
           parentPhone: item.parentPhone ? String(item.parentPhone).trim() : studentsDB[existingIndex].parentPhone
         };
         updatedCount++;
-        upsertStudentToSupabase(studentsDB[existingIndex]).catch(e => console.error('Error syncing imported student update to Supabase:', e));
       } else {
         const newSt: Student = {
           id: item.id || `std-${Date.now()}-${itemIdx}-${Math.random().toString(36).substring(2, 7)}`,
           nisn: cleanNisn,
-          name: String(item.name).trim(),
+          name: cleanName,
           gender: genderCode,
           classId: cls ? cls.id : 'cls-1',
-          className: cls ? cls.name : 'X MIPA 1',
+          className: cls ? cls.name : 'X 1',
           birthDate: cleanBirthDate,
           address: cleanAddress,
           academicYear: cleanAcademicYear || '2024/2025',
@@ -1508,12 +1513,40 @@ async function startServer() {
         };
         studentsDB.push(newSt);
         addedCount++;
-        upsertStudentToSupabase(newSt).catch(e => console.error('Error syncing new imported student to Supabase:', e));
       }
     });
 
-    // Run full sync & persist data
-    persistData();
+    // Synchronize class counts and relations
+    const synced = syncClassesAndStudentsData(classesDB, studentsDB, teachersDB);
+    classesDB = synced.classes;
+    studentsDB = synced.students;
+    teachersDB = synced.teachers;
+    cleanOrphanAttendance();
+
+    saveLocalDBBackup({
+      classes: classesDB,
+      teachers: teachersDB,
+      students: studentsDB,
+      attendance: attendanceDB,
+      bkNotes: bkNotesDB,
+      settings: schoolSettingsDB
+    });
+
+    // Await pushAllToSupabase so cloud database is updated before client refreshes
+    const cfg = loadSupabaseConfig();
+    if (cfg.url && cfg.anonKey) {
+      try {
+        await pushAllToSupabase({
+          classes: classesDB,
+          teachers: teachersDB,
+          students: studentsDB,
+          attendance: attendanceDB,
+          settings: schoolSettingsDB
+        });
+      } catch (err) {
+        console.warn('Error pushing imported students to Supabase:', err);
+      }
+    }
 
     let extraMsg = '';
     if (createdClassesCount > 0) {
@@ -1522,35 +1555,77 @@ async function startServer() {
 
     res.json({
       success: true,
+      students: studentsDB,
+      classes: classesDB,
       message: `Import Berhasil! ${addedCount} data siswa baru ditambahkan, ${updatedCount} data diperbarui.${extraMsg}`
     });
   });
 
   // Import Batch Teachers
-  app.post('/api/import/teachers', (req, res) => {
+  app.post('/api/import/teachers', async (req, res) => {
     const { teachers } = req.body;
     if (!Array.isArray(teachers) || teachers.length === 0) {
       return res.status(400).json({ error: 'Data import guru kosong atau tidak valid.' });
     }
 
-    let count = 0;
-    teachers.forEach(item => {
-      if (!item.nip || !item.name) return;
-      const existing = teachersDB.find(t => t.nip === String(item.nip).trim());
-      if (!existing) {
-        teachersDB.push({
-          id: `tch-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          nip: String(item.nip).trim(),
-          name: item.name.trim(),
+    let addedCount = 0;
+    let updatedCount = 0;
+    teachers.forEach((item, idx) => {
+      const cleanName = String(item.name || '').trim();
+      if (!cleanName) return;
+      const cleanNip = String(item.nip || '').trim() || `NIP-${Date.now()}-${idx}`;
+      const existingIdx = teachersDB.findIndex(t => t.nip === cleanNip || (item.id && t.id === item.id));
+      if (existingIdx !== -1) {
+        teachersDB[existingIdx] = {
+          ...teachersDB[existingIdx],
+          name: cleanName,
           gender: item.gender === 'P' ? 'P' : 'L',
-          username: (item.username || item.name.split(' ')[0]).toLowerCase(),
+          username: (item.username || teachersDB[existingIdx].username || cleanName.split(' ')[0]).toLowerCase(),
+          subject: item.subject || teachersDB[existingIdx].subject || 'Guru Pengajar'
+        };
+        updatedCount++;
+      } else {
+        teachersDB.push({
+          id: `tch-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
+          nip: cleanNip,
+          name: cleanName,
+          gender: item.gender === 'P' ? 'P' : 'L',
+          username: (item.username || cleanName.split(' ')[0]).toLowerCase(),
           subject: item.subject || 'Guru Pengajar'
         });
-        count++;
+        addedCount++;
       }
     });
 
-    res.json({ success: true, message: `Import Berhasil! ${count} data guru baru ditambahkan.` });
+    saveLocalDBBackup({
+      classes: classesDB,
+      teachers: teachersDB,
+      students: studentsDB,
+      attendance: attendanceDB,
+      bkNotes: bkNotesDB,
+      settings: schoolSettingsDB
+    });
+
+    const cfg = loadSupabaseConfig();
+    if (cfg.url && cfg.anonKey) {
+      try {
+        await pushAllToSupabase({
+          classes: classesDB,
+          teachers: teachersDB,
+          students: studentsDB,
+          attendance: attendanceDB,
+          settings: schoolSettingsDB
+        });
+      } catch (err) {
+        console.warn('Error pushing imported teachers to Supabase:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      teachers: teachersDB,
+      message: `Import Berhasil! ${addedCount} data guru baru ditambahkan, ${updatedCount} diperbarui.`
+    });
   });
 
   // Reset demo database to initial state

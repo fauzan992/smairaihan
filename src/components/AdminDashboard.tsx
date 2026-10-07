@@ -616,38 +616,77 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const getRowValue = (row: Record<string, any>, possibleKeys: string[]): string => {
     if (!row) return '';
     const keys = Object.keys(row);
+    const normalizeKey = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, '');
+
     for (const targetKey of possibleKeys) {
       if (row[targetKey] !== undefined && row[targetKey] !== null && String(row[targetKey]).trim() !== '') {
         return String(row[targetKey]).trim();
       }
-      const foundKey = keys.find(k => k.trim().toLowerCase() === targetKey.toLowerCase());
-      if (foundKey && row[foundKey] !== undefined && row[foundKey] !== null && String(row[foundKey]).trim() !== '') {
-        return String(row[foundKey]).trim();
+      const foundExact = keys.find(k => k.trim().toLowerCase() === targetKey.toLowerCase());
+      if (foundExact && row[foundExact] !== undefined && row[foundExact] !== null && String(row[foundExact]).trim() !== '') {
+        return String(row[foundExact]).trim();
+      }
+      const normTarget = normalizeKey(targetKey);
+      if (normTarget) {
+        const foundNorm = keys.find(k => normalizeKey(k) === normTarget);
+        if (foundNorm && row[foundNorm] !== undefined && row[foundNorm] !== null && String(row[foundNorm]).trim() !== '') {
+          return String(row[foundNorm]).trim();
+        }
       }
     }
     return '';
   };
 
-  // Helper to parse dates from various Excel formats
+  // Helper to parse dates from various Excel formats (including "Bondowoso, 14 Mei 2008")
   const parseDateString = (raw: any): string => {
     if (!raw) return '';
-    const normalized = normalizeDateToYMD(raw);
+    let str = String(raw).trim();
+    if (str === '-' || str === 'null' || str === 'undefined' || str === '') return '';
+
+    // Strip city prefix if formatted like "Bondowoso, 14-05-2008"
+    if (str.includes(',')) {
+      const parts = str.split(',');
+      const afterComma = parts[parts.length - 1].trim();
+      if (afterComma) str = afterComma;
+    }
+
+    const normalized = normalizeDateToYMD(str);
     if (normalized) return normalized;
 
-    const str = String(raw).trim();
-    if (str === '-' || str === 'null' || str === 'undefined' || str === '') return '';
-    
     // Check if it's already YYYY-MM-DD
     if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
       return str;
     }
-    
+
     // Check DD/MM/YYYY or DD-MM-YYYY
-    const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    const dmyMatch = str.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
     if (dmyMatch) {
       const day = dmyMatch[1].padStart(2, '0');
       const month = dmyMatch[2].padStart(2, '0');
       const year = dmyMatch[3];
+      return `${year}-${month}-${day}`;
+    }
+
+    // Check Indonesian month names (e.g. "14 Mei 2008")
+    const indoMonths: Record<string, string> = {
+      januari: '01', jan: '01',
+      februari: '02', feb: '02', pebruari: '02',
+      maret: '03', mar: '03',
+      april: '04', apr: '04',
+      mei: '05', may: '05',
+      juni: '06', jun: '06',
+      juli: '07', jul: '07',
+      agustus: '08', agu: '08', agt: '08', aug: '08',
+      september: '09', sep: '09', sept: '09',
+      oktober: '10', okt: '10', oct: '10',
+      november: '11', nov: '11', nopember: '11',
+      desember: '12', des: '12', dec: '12'
+    };
+    const indoMatch = str.toLowerCase().match(/(\d{1,2})\s+([a-z]+)\s+(\d{4})/);
+    if (indoMatch && indoMonths[indoMatch[2]]) {
+      const day = indoMatch[1].padStart(2, '0');
+      const month = indoMonths[indoMatch[2]];
+      const year = indoMatch[3];
       return `${year}-${month}-${day}`;
     }
 
@@ -674,65 +713,142 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setImportLoading(true);
 
     if (importType === 'siswa') {
-      const formatted = importPreviewData.map(row => {
-        const nisnVal = getRowValue(row, ['NISN', 'nisn', 'Nis', 'NIS', 'No Induk']);
-        const nameVal = getRowValue(row, ['Nama Lengkap Siswa', 'Nama Siswa', 'Nama', 'name', 'Nama Lengkap', 'Siswa', 'Nama_Siswa']);
-        const genderVal = getRowValue(row, ['Jenis Kelamin', 'Jenis Kelamin (L/P)', 'JK', 'L/P', 'Gender', 'gender']);
-        const classVal = getRowValue(row, ['Kelas / Rombel', 'Nama Kelas', 'Kelas', 'Rombel', 'Class', 'className', 'Nama_Kelas', 'nama_kelas', 'Rombongan Belajar']);
-        const birthDateVal = parseDateString(getRowValue(row, ['Tanggal Lahir', 'Tgl Lahir', 'birthDate', 'Birth Date', 'Tanggal_Lahir', 'Tgl_Lahir', 'TglLahir']));
-        const parentNameVal = getRowValue(row, ['Nama Orang Tua / Wali', 'Nama Wali Murid', 'Nama Wali', 'Wali', 'Nama Orang Tua', 'parentName', 'Wali Murid', 'Orang Tua']);
-        const parentPhoneVal = getRowValue(row, ['No WhatsApp Wali', 'No HP Wali', 'No HP', 'No. HP', 'HP Wali', 'No WhatsApp', 'parentPhone', 'Telepon', 'No WA']);
-        const addressVal = getRowValue(row, ['Alamat Tempat Tinggal', 'Alamat', 'address', 'Tempat Tinggal', 'Alamat Siswa']);
-        const academicYearVal = getRowValue(row, ['Tahun Ajaran', 'Tahun Pelajaran', 'academicYear', 'TP']);
-        const idVal = getRowValue(row, ['ID Sistem', 'ID', 'id', 'idSistem']);
+      const ignoredNames = new Set(['nama', 'nama siswa', 'nama lengkap', 'nama lengkap siswa', 'jumlah', 'total', 'laki-laki', 'perempuan', 'catatan']);
+      const batchTimestamp = Date.now().toString().slice(-5);
 
-        return {
-          id: idVal || undefined,
-          nisn: nisnVal,
-          name: nameVal,
-          gender: genderVal.toUpperCase().startsWith('P') ? 'P' : 'L',
-          className: classVal,
-          birthDate: birthDateVal || undefined,
-          parentName: parentNameVal || 'Wali Murid',
-          parentPhone: parentPhoneVal || '-',
-          address: addressVal || undefined,
-          academicYear: academicYearVal || '2024/2025'
-        };
-      });
+      const formatted = importPreviewData
+        .map((row, idx) => {
+          const rawNisn = getRowValue(row, [
+            'NISN', 'nisn', 'NIS', 'nis', 'No Induk', 'No. Induk', 'Nomor Induk',
+            'Nomor Induk Siswa', 'NIS / NISN', 'NIS/NISN', 'NISN / NIS', 'Kode Siswa'
+          ]);
+          const nameVal = getRowValue(row, [
+            'Nama Lengkap Siswa', 'Nama Siswa', 'Nama Lengkap', 'Nama', 'name',
+            'studentName', 'Siswa', 'Nama Peserta Didik', 'Peserta Didik', 'Nama_Siswa'
+          ]);
+          const genderVal = getRowValue(row, [
+            'Jenis Kelamin', 'Jenis Kelamin (L/P)', 'JK', 'L/P', 'L / P',
+            'Kelamin', 'Gender', 'gender', 'Jenis_Kelamin'
+          ]);
+          const classVal = getRowValue(row, [
+            'Kelas / Rombel', 'Nama Kelas', 'Kelas', 'Rombel', 'Rombongan Belajar',
+            'Class', 'className', 'Nama_Kelas', 'nama_kelas', 'Tingkat / Kelas', '_sheetClass'
+          ]);
+          const birthDateVal = parseDateString(getRowValue(row, [
+            'Tanggal Lahir', 'Tgl Lahir', 'Tgl. Lahir', 'Tempat Tanggal Lahir',
+            'Tempat, Tanggal Lahir', 'TTL', 'birthDate', 'Birth Date', 'Tanggal_Lahir', 'Tgl_Lahir', 'TglLahir'
+          ]));
+          const parentNameVal = getRowValue(row, [
+            'Nama Orang Tua / Wali', 'Nama Wali Murid', 'Nama Wali', 'Wali',
+            'Nama Orang Tua', 'Nama Ayah', 'Nama Ibu', 'parentName', 'Wali Murid', 'Orang Tua'
+          ]);
+          const parentPhoneVal = getRowValue(row, [
+            'No WhatsApp Wali', 'No HP Wali', 'No. HP Wali', 'No HP', 'No. HP',
+            'HP Wali', 'No WhatsApp', 'No WA', 'No. WA', 'Nomor HP', 'parentPhone', 'Telepon', 'HP'
+          ]);
+          const addressVal = getRowValue(row, [
+            'Alamat Tempat Tinggal', 'Alamat Lengkap', 'Alamat Siswa', 'Alamat',
+            'address', 'Tempat Tinggal', 'Domisili', 'Desa / Kelurahan', 'Desa'
+          ]);
+          const academicYearVal = getRowValue(row, [
+            'Tahun Ajaran', 'Tahun Pelajaran', 'academicYear', 'TP', 'Tahun_Ajaran'
+          ]);
+          const idVal = getRowValue(row, ['ID Sistem', 'ID', 'id', 'idSistem']);
+
+          const cleanName = nameVal.trim();
+          if (!cleanName || ignoredNames.has(cleanName.toLowerCase())) {
+            return null;
+          }
+
+          let finalNisn = rawNisn.replace(/^['`]+/, '').trim();
+          if (!finalNisn || finalNisn === '-' || finalNisn === '0') {
+            // Try matching existing student by name & class first
+            const existingMatch = students.find(
+              s => s.name.trim().toLowerCase() === cleanName.toLowerCase() &&
+                   (!classVal || s.className.trim().toLowerCase() === classVal.trim().toLowerCase())
+            );
+            if (existingMatch && existingMatch.nisn && existingMatch.nisn !== '-') {
+              finalNisn = existingMatch.nisn;
+            } else {
+              finalNisn = `NIS${batchTimestamp}${String(idx + 1).padStart(3, '0')}`;
+            }
+          }
+
+          const gUpper = genderVal.trim().toUpperCase();
+          const parsedGender: 'L' | 'P' = (gUpper.startsWith('P') || gUpper.includes('PEREMPUAN') || gUpper.includes('WANITA')) ? 'P' : 'L';
+
+          return {
+            id: idVal || undefined,
+            nisn: finalNisn,
+            name: cleanName,
+            gender: parsedGender,
+            className: classVal || (selectedClass !== 'all' ? (classes.find(c => c.id === selectedClass)?.name || '') : ''),
+            birthDate: birthDateVal || undefined,
+            parentName: parentNameVal || 'Wali Murid',
+            parentPhone: parentPhoneVal || '-',
+            address: addressVal || undefined,
+            academicYear: academicYearVal || '2024/2025'
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null);
+
+      if (formatted.length === 0) {
+        setImportLoading(false);
+        setImportMessage({
+          type: 'error',
+          text: 'Tidak ditemukan baris data siswa yang valid. Pastikan file Excel memiliki kolom Nama Siswa dan Kelas.'
+        });
+        return;
+      }
 
       const res = await apiService.importStudents(formatted);
-      setImportLoading(false);
       if (res.success) {
-        setImportMessage({ type: 'success', text: res.message || 'Import data siswa berhasil!' });
-        onRefreshData();
+        await onRefreshData();
+        setImportLoading(false);
+        setImportMessage({ type: 'success', text: res.message || `Import ${formatted.length} data siswa berhasil disimpan ke database!` });
         setImportPreviewData([]);
       } else {
+        setImportLoading(false);
         setImportMessage({ type: 'error', text: res.error || 'Gagal import data.' });
       }
     } else {
-      const formatted = importPreviewData.map(row => {
-        const nipVal = getRowValue(row, ['NIP', 'nip', 'Nip', 'No NIP']);
-        const nameVal = getRowValue(row, ['Nama Guru', 'Nama', 'name', 'Nama Lengkap', 'Guru']);
-        const genderVal = getRowValue(row, ['Jenis Kelamin (L/P)', 'Jenis Kelamin', 'gender']);
-        const usernameVal = getRowValue(row, ['Username Login', 'Username', 'username', 'User']);
-        const subjectVal = getRowValue(row, ['Mata Pelajaran', 'Mapel', 'subject', 'Pelajaran']);
+      const formatted = importPreviewData
+        .map((row, idx) => {
+          const nipVal = getRowValue(row, ['NIP', 'nip', 'Nip', 'No NIP', 'NIY', 'NUPTK']);
+          const nameVal = getRowValue(row, ['Nama Guru', 'Nama Lengkap', 'Nama', 'name', 'Guru', 'Nama Pengajar']);
+          const genderVal = getRowValue(row, ['Jenis Kelamin (L/P)', 'Jenis Kelamin', 'JK', 'L/P', 'gender']);
+          const usernameVal = getRowValue(row, ['Username Login', 'Username', 'username', 'User']);
+          const subjectVal = getRowValue(row, ['Mata Pelajaran', 'Mapel', 'subject', 'Pelajaran']);
 
-        return {
-          nip: nipVal,
-          name: nameVal,
-          gender: genderVal.toUpperCase().startsWith('P') ? 'P' : 'L',
-          username: usernameVal || nipVal || nameVal.toLowerCase().replace(/\s+/g, ''),
-          subject: subjectVal || 'Pengajar'
-        };
-      });
+          const cleanName = nameVal.trim();
+          if (!cleanName || cleanName.toLowerCase() === 'nama guru') return null;
+
+          const finalNip = (nipVal && nipVal !== '-') ? nipVal : `NIP${Date.now().toString().slice(-5)}${String(idx + 1).padStart(2, '0')}`;
+
+          return {
+            nip: finalNip,
+            name: cleanName,
+            gender: genderVal.toUpperCase().startsWith('P') ? 'P' : 'L',
+            username: usernameVal || finalNip || cleanName.toLowerCase().replace(/[^a-z0-9]/g, ''),
+            subject: subjectVal || 'Pengajar'
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null);
+
+      if (formatted.length === 0) {
+        setImportLoading(false);
+        setImportMessage({ type: 'error', text: 'Tidak ditemukan baris data guru yang valid.' });
+        return;
+      }
 
       const res = await apiService.importTeachers(formatted);
-      setImportLoading(false);
       if (res.success) {
+        await onRefreshData();
+        setImportLoading(false);
         setImportMessage({ type: 'success', text: res.message || 'Import data guru berhasil!' });
-        onRefreshData();
         setImportPreviewData([]);
       } else {
+        setImportLoading(false);
         setImportMessage({ type: 'error', text: res.error || 'Gagal import data.' });
       }
     }
@@ -2198,15 +2314,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <tbody>
                         {importType === 'siswa' ? (
                           importPreviewData.map((row, idx) => {
-                            const rawClassName = getRowValue(row, ['Kelas / Rombel', 'Nama Kelas', 'Kelas', 'Rombel', 'Class', 'className', 'Nama_Kelas', 'nama_kelas', 'Rombongan Belajar']);
+                            const rawClassName = getRowValue(row, ['Kelas / Rombel', 'Nama Kelas', 'Kelas', 'Rombel', 'Class', 'className', 'Nama_Kelas', 'nama_kelas', 'Rombongan Belajar', 'Tingkat / Kelas', '_sheetClass']);
                             const matched = findMatchingClass(rawClassName, undefined, classes);
-                            const studentName = getRowValue(row, ['Nama Lengkap Siswa', 'Nama Siswa', 'Nama', 'name', 'Nama Lengkap', 'Siswa']);
-                            const nisnVal = getRowValue(row, ['NISN', 'nisn', 'Nis', 'NIS', 'No Induk']);
-                            const genderVal = getRowValue(row, ['Jenis Kelamin', 'Jenis Kelamin (L/P)', 'JK', 'L/P', 'gender']);
-                            const birthDateVal = parseDateString(getRowValue(row, ['Tanggal Lahir', 'Tgl Lahir', 'birthDate', 'Birth Date', 'Tanggal_Lahir']));
-                            const parentName = getRowValue(row, ['Nama Orang Tua / Wali', 'Nama Wali Murid', 'Nama Wali', 'Wali', 'parentName']);
-                            const parentPhone = getRowValue(row, ['No WhatsApp Wali', 'No HP Wali', 'No HP', 'No. HP', 'parentPhone', 'No WA']);
-                            const addressVal = getRowValue(row, ['Alamat Tempat Tinggal', 'Alamat', 'address']);
+                            const studentName = getRowValue(row, ['Nama Lengkap Siswa', 'Nama Siswa', 'Nama', 'name', 'Nama Lengkap', 'Siswa', 'Nama Peserta Didik', 'Peserta Didik', 'Nama_Siswa']);
+                            const nisnVal = getRowValue(row, ['NISN', 'nisn', 'Nis', 'NIS', 'No Induk', 'No. Induk', 'Nomor Induk', 'Nomor Induk Siswa', 'NIS / NISN', 'NIS/NISN']);
+                            const genderVal = getRowValue(row, ['Jenis Kelamin', 'Jenis Kelamin (L/P)', 'JK', 'L/P', 'L / P', 'Kelamin', 'gender']);
+                            const birthDateVal = parseDateString(getRowValue(row, ['Tanggal Lahir', 'Tgl Lahir', 'Tgl. Lahir', 'Tempat Tanggal Lahir', 'Tempat, Tanggal Lahir', 'TTL', 'birthDate', 'Birth Date', 'Tanggal_Lahir']));
+                            const parentName = getRowValue(row, ['Nama Orang Tua / Wali', 'Nama Wali Murid', 'Nama Wali', 'Wali', 'Nama Orang Tua', 'Nama Ayah', 'Nama Ibu', 'parentName', 'Orang Tua']);
+                            const parentPhone = getRowValue(row, ['No WhatsApp Wali', 'No HP Wali', 'No. HP Wali', 'No HP', 'No. HP', 'parentPhone', 'No WA', 'Nomor HP', 'Telepon']);
+                            const addressVal = getRowValue(row, ['Alamat Tempat Tinggal', 'Alamat Lengkap', 'Alamat Siswa', 'Alamat', 'address', 'Tempat Tinggal', 'Domisili', 'Desa / Kelurahan']);
 
                             return (
                               <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50">

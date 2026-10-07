@@ -19,6 +19,69 @@ export interface ClientSupabaseConfig {
 export const DEFAULT_SUPABASE_URL = 'https://zxnkiqupojwydazkurfv.supabase.co';
 export const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_PvMiB0Or-lpYWjVSaa0FeQ_a33a0ISz';
 
+// Encode extended student metadata (birthDate, address, academicYear, photoUrl) into default_password
+// so it persists in Supabase even when the students table only has the core 10 columns
+export function encodeStudentMetaPassword(s: Partial<Student>): string {
+  let basePwd = '123';
+  if (s.defaultPassword && typeof s.defaultPassword === 'string') {
+    if (s.defaultPassword.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(s.defaultPassword);
+        basePwd = parsed.p || '123';
+      } catch {
+        basePwd = '123';
+      }
+    } else {
+      basePwd = s.defaultPassword;
+    }
+  }
+  const meta: Record<string, string> = { p: basePwd };
+  if (s.birthDate) meta.b = String(s.birthDate).trim();
+  if (s.address) meta.a = String(s.address).trim();
+  if (s.academicYear) meta.y = String(s.academicYear).trim();
+  if (s.photoUrl && !s.photoUrl.startsWith('data:')) meta.u = s.photoUrl;
+
+  if (Object.keys(meta).length === 1) return basePwd;
+  return JSON.stringify(meta);
+}
+
+export function decodeStudentFromSupabaseRow(s: any, fallbackLocal?: Partial<Student>): Student {
+  let defaultPassword = s.default_password || s.defaultPassword || '123';
+  let metaBirthDate: string | undefined;
+  let metaAddress: string | undefined;
+  let metaAcademicYear: string | undefined;
+  let metaPhotoUrl: string | undefined;
+
+  if (typeof defaultPassword === 'string' && defaultPassword.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(defaultPassword);
+      defaultPassword = parsed.p || '123';
+      metaBirthDate = parsed.b || undefined;
+      metaAddress = parsed.a || undefined;
+      metaAcademicYear = parsed.y || undefined;
+      metaPhotoUrl = parsed.u || undefined;
+    } catch {
+      defaultPassword = '123';
+    }
+  }
+
+  return {
+    id: s.id,
+    nisn: String(s.nisn || '').trim(),
+    name: String(s.name || '').trim(),
+    gender: (String(s.gender || 'L').toUpperCase().startsWith('P') ? 'P' : 'L') as 'L' | 'P',
+    classId: s.class_id || s.classId || fallbackLocal?.classId || '',
+    className: s.class_name || s.className || fallbackLocal?.className || '',
+    birthDate: s.birth_date || s.birthDate || metaBirthDate || fallbackLocal?.birthDate || undefined,
+    address: s.address || metaAddress || fallbackLocal?.address || undefined,
+    academicYear: s.academic_year || s.academicYear || metaAcademicYear || fallbackLocal?.academicYear || '2024/2025',
+    parentName: s.parent_name || s.parentName || fallbackLocal?.parentName || undefined,
+    parentPhone: s.parent_phone || s.parentPhone || fallbackLocal?.parentPhone || undefined,
+    photoUrl: s.photo_url || s.photoUrl || metaPhotoUrl || fallbackLocal?.photoUrl || undefined,
+    defaultPassword
+  };
+}
+
 // Get saved config from localStorage
 export function getStoredSupabaseConfig(): ClientSupabaseConfig {
   const url = localStorage.getItem(STORAGE_KEY_URL) || DEFAULT_SUPABASE_URL;
@@ -123,9 +186,21 @@ export async function pushAllFromBrowser(url: string, anonKey: string, localData
       if (errClasses) throw new Error(`Tabel classes: ${errClasses.message}`);
     }
 
-    // 2. Teachers
-    const teachersData = localData.teachers.map(t => ({
-      id: t.id,
+    // 2. Teachers (reconcile unique nip with existing Supabase rows to avoid unique constraint conflicts)
+    const { data: existingSupaTeachers } = await supabase.from('teachers').select('id, nip');
+    const teacherIdByNip = new Map<string, string>();
+    (existingSupaTeachers || []).forEach((et: any) => {
+      if (et.nip && et.id) teacherIdByNip.set(String(et.nip).trim(), et.id);
+    });
+
+    const dedupTeachersMap = new Map<string, Teacher>();
+    localData.teachers.forEach((t, idx) => {
+      const cleanNip = String(t.nip || '').trim() || `nip-${idx}`;
+      dedupTeachersMap.set(cleanNip, { ...t, nip: cleanNip });
+    });
+
+    const teachersData = Array.from(dedupTeachersMap.values()).map(t => ({
+      id: teacherIdByNip.get(t.nip) || t.id,
       nip: t.nip,
       name: t.name,
       gender: t.gender || 'L',
@@ -147,31 +222,49 @@ export async function pushAllFromBrowser(url: string, anonKey: string, localData
       if (errTeachers) throw new Error(`Tabel teachers: ${errTeachers.message}`);
     }
 
-    // 3. Students
-    const studentsData = localData.students.map(s => ({
-      id: s.id,
+    // 3. Students (use verified core columns and reconcile unique nisn with existing Supabase rows)
+    const { data: existingSupaStudents } = await supabase.from('students').select('id, nisn');
+    const studentIdByNisn = new Map<string, string>();
+    (existingSupaStudents || []).forEach((es: any) => {
+      if (es.nisn && es.id) studentIdByNisn.set(String(es.nisn).trim(), es.id);
+    });
+
+    const dedupStudentsMap = new Map<string, Student>();
+    localData.students.forEach((s, idx) => {
+      const rawNisn = String(s.nisn || '').trim();
+      const validNisn = (rawNisn && rawNisn !== '-' && rawNisn !== '0')
+        ? rawNisn
+        : `NIS-${s.id || idx}`;
+      dedupStudentsMap.set(validNisn, { ...s, nisn: validNisn });
+    });
+
+    const studentsData = Array.from(dedupStudentsMap.values()).map((s, idx) => ({
+      id: studentIdByNisn.get(s.nisn) || s.id || `std-${Date.now()}-${idx}`,
       nisn: s.nisn,
-      name: s.name,
+      name: String(s.name || '').trim(),
       gender: s.gender || 'L',
-      class_id: s.classId,
-      class_name: s.className,
-      birth_date: s.birthDate || null,
-      address: s.address || null,
-      academic_year: s.academicYear || '2024/2025',
+      class_id: s.classId || 'cls-1',
+      class_name: s.className || 'X 1',
       parent_name: s.parentName || null,
       parent_phone: s.parentPhone || null,
-      photo_url: s.photoUrl || null,
-      default_password: s.defaultPassword || '123'
+      default_password: encodeStudentMetaPassword(s)
     }));
+
     if (studentsData.length > 0) {
-      let { error: errStudents } = await supabase.from('students').upsert(studentsData, { onConflict: 'id' });
-      if (errStudents && errStudents.message && (errStudents.message.includes('photo_url') || errStudents.message.includes('birth_date') || errStudents.message.includes('academic_year'))) {
-        console.warn('Supabase students table schema mismatch. Retrying with basic fields...');
-        const studentsDataBasic = studentsData.map(({ photo_url, academic_year, ...rest }) => rest);
-        const retryRes = await supabase.from('students').upsert(studentsDataBasic, { onConflict: 'id' });
-        errStudents = retryRes.error;
+      const chunkSize = 200;
+      for (let i = 0; i < studentsData.length; i += chunkSize) {
+        const chunk = studentsData.slice(i, i + chunkSize);
+        let { error: errStudents } = await supabase.from('students').upsert(chunk, { onConflict: 'id' });
+        if (errStudents) {
+          console.warn('Supabase students upsert notice, retrying minimal core columns:', errStudents.message);
+          const chunkMinimal = chunk.map(({ id, nisn, name, gender, class_id, class_name }) => ({
+            id, nisn, name, gender, class_id, class_name
+          }));
+          const retryRes = await supabase.from('students').upsert(chunkMinimal, { onConflict: 'id' });
+          errStudents = retryRes.error;
+        }
+        if (errStudents) throw new Error(`Tabel students: ${errStudents.message}`);
       }
-      if (errStudents) throw new Error(`Tabel students: ${errStudents.message}`);
     }
 
     // 4. Attendance
@@ -351,21 +444,16 @@ export async function pullAllFromBrowser(url: string, anonKey: string): Promise<
       };
     });
 
-    const students: Student[] = (rawStudents || []).map((s: any) => ({
-      id: s.id,
-      nisn: s.nisn,
-      name: s.name,
-      gender: s.gender || 'L',
-      classId: s.class_id,
-      className: s.class_name,
-      birthDate: s.birth_date || s.birthDate || undefined,
-      address: s.address || undefined,
-      academicYear: s.academic_year || s.academicYear || '2024/2025',
-      parentName: s.parent_name || undefined,
-      parentPhone: s.parent_phone || undefined,
-      photoUrl: s.photo_url || undefined,
-      defaultPassword: s.default_password || '123'
-    }));
+    let localStudentsList: Student[] = [];
+    try {
+      const rawLocalSt = localStorage.getItem('app_master_students');
+      if (rawLocalSt) localStudentsList = JSON.parse(rawLocalSt);
+    } catch (e) {}
+
+    const students: Student[] = (rawStudents || []).map((s: any) => {
+      const existingLocal = localStudentsList.find(l => l.id === s.id || l.nisn === s.nisn);
+      return decodeStudentFromSupabaseRow(s, existingLocal);
+    });
 
     const attendance: AttendanceRecord[] = (rawAtt || []).map((a: any) => ({
       id: a.id,
@@ -455,7 +543,10 @@ export async function upsertStudentToBrowserSupabase(student: Student): Promise<
       class_name: student.className,
       parent_name: student.parentName || null,
       parent_phone: student.parentPhone || null,
-      default_password: student.defaultPassword || '123'
+      default_password: encodeStudentMetaPassword({
+        ...student,
+        birthDate: formattedBirthDate || undefined
+      })
     };
 
     // Strategy 1: Try updating by NISN first (primary unique key for students in school)
@@ -469,7 +560,7 @@ export async function upsertStudentToBrowserSupabase(student: Student): Promise<
     if (!error && (!data || data.length === 0) && student.id) {
       const resById = await supabase
         .from('students')
-        .update(standardPayload)
+        .update({ ...standardPayload, nisn: trimmedNisn })
         .eq('id', student.id)
         .select('id');
       error = resById.error;
@@ -507,20 +598,7 @@ export async function upsertStudentToBrowserSupabase(student: Student): Promise<
       }
     }
 
-    // Strategy 5: Try saving extended columns (birth_date, address, photo_url) if table supports them
-    try {
-      if (formattedBirthDate || student.address || student.photoUrl) {
-        await supabase.from('students').update({
-          birth_date: formattedBirthDate,
-          address: student.address || null,
-          photo_url: student.photoUrl || null
-        }).eq('nisn', trimmedNisn);
-      }
-    } catch {
-      // Optional schema columns, non-critical
-    }
-
-    // Strategy 6: Recalculate student counts for classes in Supabase
+    // Strategy 5: Recalculate student counts for classes in Supabase
     try {
       const { data: allClasses } = await supabase.from('classes').select('id');
       if (allClasses && allClasses.length > 0) {

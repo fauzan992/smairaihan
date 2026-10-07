@@ -1,6 +1,6 @@
 import { User, Student, Teacher, ClassRoom, AttendanceRecord, AttendanceStatus, UserRole, SchoolSettings, BKNote, KBMJournalEntry } from '../types';
 import { INITIAL_CLASSES, INITIAL_TEACHERS, INITIAL_STUDENTS, generateInitialAttendance, INITIAL_BK_NOTES, generateInitialKBMJournals } from '../data/mockDatabase';
-import { getStoredSupabaseConfig, isBrowserSupabaseConfigured, pushAllFromBrowser, pullAllFromBrowser, getBrowserSupabaseClient, deleteTeacherFromBrowserSupabase, deleteClassFromBrowserSupabase, deleteStudentFromBrowserSupabase, upsertTeacherToBrowserSupabase, upsertSettingsToBrowserSupabase, upsertStudentToBrowserSupabase, upsertAttendanceToBrowserSupabase } from './clientSupabase';
+import { getStoredSupabaseConfig, isBrowserSupabaseConfigured, pushAllFromBrowser, pullAllFromBrowser, getBrowserSupabaseClient, deleteTeacherFromBrowserSupabase, deleteClassFromBrowserSupabase, deleteStudentFromBrowserSupabase, upsertTeacherToBrowserSupabase, upsertSettingsToBrowserSupabase, upsertStudentToBrowserSupabase, upsertAttendanceToBrowserSupabase, decodeStudentFromSupabaseRow } from './clientSupabase';
 import { syncClassesAndStudentsData } from '../utils/dataSync';
 import { normalizeDateToYMD, isStudentNameMatch, isStudentBirthDateMatch, getTodayWibDate, isTodayRecord } from '../utils/studentAuthHelper';
 
@@ -569,21 +569,7 @@ export const apiService = {
         if (supabase) {
           const { data: supaStudents } = await supabase.from('students').select('*');
           if (supaStudents && supaStudents.length > 0) {
-            const mappedSupa: Student[] = supaStudents.map((s: any) => ({
-              id: s.id,
-              nisn: s.nisn,
-              name: s.name,
-              gender: s.gender || 'L',
-              classId: s.class_id,
-              className: s.class_name,
-              birthDate: s.birth_date || s.birthDate || undefined,
-              address: s.address || undefined,
-              academicYear: s.academic_year || s.academicYear || '2024/2025',
-              parentName: s.parent_name || undefined,
-              parentPhone: s.parent_phone || undefined,
-              photoUrl: s.photo_url || undefined,
-              defaultPassword: s.default_password || '123'
-            }));
+            const mappedSupa: Student[] = supaStudents.map((s: any) => decodeStudentFromSupabaseRow(s));
             matched = performClientMatch(mappedSupa);
             if (matched) {
               // Cache into local storage
@@ -1476,26 +1462,48 @@ export const apiService = {
 
   // Import batch students
   async importStudents(studentsInput: any[]): Promise<{ success: boolean; message?: string; error?: string }> {
-    const res = await safeFetchJson<{ message?: string }>('/api/import/students', {
+    const res = await safeFetchJson<{ message?: string; students?: Student[]; classes?: ClassRoom[] }>('/api/import/students', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ students: studentsInput })
     });
+
     if (res.ok && res.data) {
+      if (Array.isArray(res.data.students) && res.data.students.length > 0) {
+        saveLocalStudents(res.data.students);
+      }
+      if (Array.isArray(res.data.classes) && res.data.classes.length > 0) {
+        saveLocalClasses(res.data.classes);
+      }
+      // Also ensure browser Supabase is synced before returning
+      await triggerAutoSupabaseSync();
       return { success: true, message: res.data.message };
     }
 
     const existingStudents = getLocalStudents();
     const existingClasses = getLocalClasses();
     const existingTeachers = getLocalTeachers();
+    const batchTs = Date.now().toString().slice(-5);
 
     for (let sIdx = 0; sIdx < studentsInput.length; sIdx++) {
       const s = studentsInput[sIdx];
-      const idx = existingStudents.findIndex(e => (s.nisn && e.nisn === s.nisn) || (s.id && e.id === s.id));
+      const cleanName = String(s.name || '').trim();
+      if (!cleanName) continue;
+
+      let cleanNisn = String(s.nisn || '').replace(/^['`]+/, '').trim();
+      if (!cleanNisn || cleanNisn === '-' || cleanNisn === '0') {
+        cleanNisn = `NIS${batchTs}${String(sIdx + 1).padStart(3, '0')}`;
+      }
+
+      const idx = existingStudents.findIndex(
+        e => (cleanNisn && e.nisn === cleanNisn) || (s.id && e.id === s.id)
+      );
       if (idx !== -1) {
         existingStudents[idx] = {
           ...existingStudents[idx],
           ...s,
+          nisn: cleanNisn,
+          name: cleanName,
           birthDate: s.birthDate !== undefined ? s.birthDate : existingStudents[idx].birthDate,
           address: s.address !== undefined ? s.address : existingStudents[idx].address,
           academicYear: s.academicYear || existingStudents[idx].academicYear || '2024/2025'
@@ -1503,8 +1511,8 @@ export const apiService = {
       } else {
         existingStudents.push({
           id: s.id || `std-${Date.now()}-${sIdx}-${Math.random().toString(36).substring(2, 7)}`,
-          nisn: s.nisn,
-          name: s.name,
+          nisn: cleanNisn,
+          name: cleanName,
           gender: s.gender || 'L',
           classId: s.classId || '',
           className: s.className || '',
@@ -1524,19 +1532,23 @@ export const apiService = {
     saveLocalStudents(synced.students);
     saveLocalTeachers(synced.teachers);
 
-    triggerAutoSupabaseSync();
+    await triggerAutoSupabaseSync();
 
     return { success: true, message: `Berhasil mengimpor ${studentsInput.length} data siswa.` };
   },
 
   // Import batch teachers
   async importTeachers(teachersInput: any[]): Promise<{ success: boolean; message?: string; error?: string }> {
-    const res = await safeFetchJson<{ message?: string }>('/api/import/teachers', {
+    const res = await safeFetchJson<{ message?: string; teachers?: Teacher[] }>('/api/import/teachers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ teachers: teachersInput })
     });
     if (res.ok && res.data) {
+      if (Array.isArray(res.data.teachers) && res.data.teachers.length > 0) {
+        saveLocalTeachers(res.data.teachers);
+      }
+      await triggerAutoSupabaseSync();
       return { success: true, message: res.data.message };
     }
 
@@ -1561,7 +1573,7 @@ export const apiService = {
     }
 
     saveLocalTeachers(existingTeachers);
-    triggerAutoSupabaseSync();
+    await triggerAutoSupabaseSync();
 
     return { success: true, message: `Berhasil mengimpor ${teachersInput.length} data guru.` };
   },

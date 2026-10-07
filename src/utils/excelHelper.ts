@@ -246,20 +246,107 @@ export const parseExcelFile = (file: File): Promise<any[]> => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array', cellDates: false });
-        
-        // Priority: target 'Data Siswa Backup', 'Template Siswa', 'Master Siswa', or first sheet
-        let targetSheetName = workbook.SheetNames[0];
-        for (const sName of workbook.SheetNames) {
+
+        const headerKeywords = [
+          'nisn', 'nis', 'no induk', 'nomor induk', 'nama', 'nama siswa',
+          'nama lengkap', 'peserta didik', 'nip', 'nama guru', 'username'
+        ];
+
+        const nonGuideSheets = workbook.SheetNames.filter(sName => {
           const lower = sName.toLowerCase();
-          if (lower.includes('siswa') || lower.includes('student') || lower.includes('data')) {
-            targetSheetName = sName;
-            break;
+          return !lower.includes('petunjuk') && !lower.includes('panduan') && !lower.includes('instruksi');
+        });
+        const sheetsToCheck = nonGuideSheets.length > 0 ? nonGuideSheets : workbook.SheetNames;
+
+        // If there is a dedicated backup sheet like 'Data Siswa Backup' or 'Template Siswa', prioritize it;
+        // otherwise parse all valid sheets in the workbook so multi-sheet class files work seamlessly.
+        const primaryBackupSheet = sheetsToCheck.find(sName => {
+          const lower = sName.toLowerCase();
+          return lower === 'data siswa backup' || lower === 'template siswa' || lower === 'master siswa' || lower === 'template guru';
+        });
+        const targetSheets = primaryBackupSheet ? [primaryBackupSheet] : sheetsToCheck;
+
+        const allParsedRows: any[] = [];
+
+        for (const sName of targetSheets) {
+          const worksheet = workbook.Sheets[sName];
+          if (!worksheet) continue;
+
+          const rows2D: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
+          if (!rows2D || rows2D.length === 0) continue;
+
+          let headerRowIdx = -1;
+          let inferredClassFromTitle = '';
+
+          // Scan first 20 rows for title class info & the actual table header row
+          const scanLimit = Math.min(20, rows2D.length);
+          for (let r = 0; r < scanLimit; r++) {
+            const rowCells = (rows2D[r] || []).map(c => String(c ?? '').trim());
+            const nonEmptyCells = rowCells.filter(Boolean);
+            if (nonEmptyCells.length === 0) continue;
+
+            // Check if a title row contains "KELAS X 1" etc.
+            if (headerRowIdx === -1) {
+              const joinedTitle = nonEmptyCells.join(' ');
+              const clsMatch = joinedTitle.match(/kelas\s*[:\-]?\s*((?:XII|XI|X|12|11|10)[\s\-_]*[A-Z0-9\s]*)/i);
+              if (clsMatch && clsMatch[1]) {
+                inferredClassFromTitle = clsMatch[1].trim().replace(/\s+/g, ' ');
+              }
+            }
+
+            // Check if this row is the table header row
+            if (nonEmptyCells.length >= 2) {
+              const hasPrimaryKeyword = rowCells.some(cell => {
+                const clean = cell.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+                return headerKeywords.some(kw => clean === kw || clean.startsWith(kw + ' ') || clean.endsWith(' ' + kw));
+              });
+              if (hasPrimaryKeyword) {
+                headerRowIdx = r;
+                break;
+              }
+            }
+          }
+
+          // Check if sheet name itself is a class name (e.g. "X 1", "XI MIPA 1", "Kelas X 2")
+          let sheetClassHint = inferredClassFromTitle;
+          if (!sheetClassHint) {
+            const cleanSheet = sName.replace(/^kelas\s*/i, '').trim();
+            if (/^(?:XII|XI|X|12|11|10)(?:[\s\-_]+[A-Za-z0-9]+)*$/i.test(cleanSheet)) {
+              sheetClassHint = cleanSheet;
+            }
+          }
+
+          if (headerRowIdx !== -1) {
+            const rawHeaders = (rows2D[headerRowIdx] || []).map((h, idx) => {
+              const trimmed = String(h ?? '').trim();
+              return trimmed || `Col_${idx}`;
+            });
+
+            for (let r = headerRowIdx + 1; r < rows2D.length; r++) {
+              const rowValues = rows2D[r] || [];
+              const nonEmpty = rowValues.filter(v => String(v ?? '').trim() !== '');
+              if (nonEmpty.length === 0) continue;
+
+              const obj: Record<string, any> = {};
+              rawHeaders.forEach((hKey, cIdx) => {
+                obj[hKey] = rowValues[cIdx] !== undefined && rowValues[cIdx] !== null ? String(rowValues[cIdx]).trim() : '';
+              });
+
+              if (sheetClassHint) {
+                obj._sheetClass = sheetClassHint;
+              }
+              allParsedRows.push(obj);
+            }
+          } else if (targetSheets.length === 1) {
+            const fallbackJson = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, { raw: false, defval: '' });
+            fallbackJson.forEach(row => {
+              if (sheetClassHint) row._sheetClass = sheetClassHint;
+              allParsedRows.push(row);
+            });
           }
         }
-        
-        const worksheet = workbook.Sheets[targetSheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet, { raw: false, defval: '' });
-        resolve(json);
+
+        resolve(allParsedRows);
       } catch (err) {
         reject(err);
       }

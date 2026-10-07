@@ -208,7 +208,8 @@ export const SupabaseManager: React.FC<SupabaseManagerProps> = ({ onRefreshMaste
             errorMessage: undefined
           }));
           setStoredSupabaseConfig(trimmedUrl, trimmedKey, config.autoSync);
-          setStatusMessage({ type: 'success', text: data.message || 'Koneksi ke Supabase Database berhasil!' });
+          setStatusMessage({ type: 'success', text: data.message || 'Koneksi ke Supabase Database berhasil & aktif!' });
+          if (onRefreshMasterData) onRefreshMasterData();
           setIsTesting(false);
           return;
         } else if (data.error) {
